@@ -1,0 +1,91 @@
+.class public Lcom/flo/tamapoke/Notif;
+.super Ljava/lang/Object;
+.source "Notif.java"
+
+# Outils de notification (Android 8+ : canaux obligatoires)
+#   channels(ctx)                  : crée les canaux "status" (discret) et "alerts"
+#   build(ctx, canal, titre, texte, permanente)
+#   post(ctx, id, titre, texte)    : alerte (touchée = ouvre le jeu)
+
+
+.method public constructor <init>()V
+    .registers 1
+    invoke-direct {p0}, Ljava/lang/Object;-><init>()V
+    return-void
+.end method
+
+
+.method public static channels(Landroid/content/Context;)Landroid/app/NotificationManager;
+    .registers 6
+    const-string v0, "notification"
+    invoke-virtual {p0, v0}, Landroid/content/Context;->getSystemService(Ljava/lang/String;)Ljava/lang/Object;
+    move-result-object v0
+    check-cast v0, Landroid/app/NotificationManager;
+
+    new-instance v1, Landroid/app/NotificationChannel;
+    const-string v2, "status"
+    const-string v3, "Podomètre (permanent)"
+    const/4 v4, 0x2
+    invoke-direct {v1, v2, v3, v4}, Landroid/app/NotificationChannel;-><init>(Ljava/lang/String;Ljava/lang/CharSequence;I)V
+    invoke-virtual {v0, v1}, Landroid/app/NotificationManager;->createNotificationChannel(Landroid/app/NotificationChannel;)V
+
+    new-instance v1, Landroid/app/NotificationChannel;
+    const-string v2, "alerts"
+    const-string v3, "Alertes du compagnon"
+    const/4 v4, 0x3
+    invoke-direct {v1, v2, v3, v4}, Landroid/app/NotificationChannel;-><init>(Ljava/lang/String;Ljava/lang/CharSequence;I)V
+    invoke-virtual {v0, v1}, Landroid/app/NotificationManager;->createNotificationChannel(Landroid/app/NotificationChannel;)V
+    return-object v0
+.end method
+
+
+.method public static build(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)Landroid/app/Notification;
+    .registers 11
+    new-instance v0, Landroid/app/Notification$Builder;
+    invoke-direct {v0, p0, p1}, Landroid/app/Notification$Builder;-><init>(Landroid/content/Context;Ljava/lang/String;)V
+
+    invoke-virtual {p0}, Landroid/content/Context;->getResources()Landroid/content/res/Resources;
+    move-result-object v1
+    const-string v2, "ic_notif"
+    const-string v3, "drawable"
+    invoke-virtual {p0}, Landroid/content/Context;->getPackageName()Ljava/lang/String;
+    move-result-object v4
+    invoke-virtual {v1, v2, v3, v4}, Landroid/content/res/Resources;->getIdentifier(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I
+    move-result v1
+    invoke-virtual {v0, v1}, Landroid/app/Notification$Builder;->setSmallIcon(I)Landroid/app/Notification$Builder;
+
+    invoke-virtual {v0, p2}, Landroid/app/Notification$Builder;->setContentTitle(Ljava/lang/CharSequence;)Landroid/app/Notification$Builder;
+    invoke-virtual {v0, p3}, Landroid/app/Notification$Builder;->setContentText(Ljava/lang/CharSequence;)Landroid/app/Notification$Builder;
+    invoke-virtual {v0, p4}, Landroid/app/Notification$Builder;->setOngoing(Z)Landroid/app/Notification$Builder;
+    xor-int/lit8 v1, p4, 0x1
+    invoke-virtual {v0, v1}, Landroid/app/Notification$Builder;->setAutoCancel(Z)Landroid/app/Notification$Builder;
+    invoke-virtual {v0, v1}, Landroid/app/Notification$Builder;->setShowWhen(Z)Landroid/app/Notification$Builder;
+
+    new-instance v1, Landroid/content/Intent;
+    const-class v2, Lcom/flo/tamapoke/MainActivity;
+    invoke-direct {v1, p0, v2}, Landroid/content/Intent;-><init>(Landroid/content/Context;Ljava/lang/Class;)V
+    const/high16 v2, 0x30000000      # NEW_TASK | SINGLE_TOP
+    invoke-virtual {v1, v2}, Landroid/content/Intent;->addFlags(I)Landroid/content/Intent;
+    const/4 v2, 0x0
+    const/high16 v3, 0xc000000       # UPDATE_CURRENT | IMMUTABLE
+    invoke-static {p0, v2, v1, v3}, Landroid/app/PendingIntent;->getActivity(Landroid/content/Context;ILandroid/content/Intent;I)Landroid/app/PendingIntent;
+    move-result-object v1
+    invoke-virtual {v0, v1}, Landroid/app/Notification$Builder;->setContentIntent(Landroid/app/PendingIntent;)Landroid/app/Notification$Builder;
+
+    invoke-virtual {v0}, Landroid/app/Notification$Builder;->build()Landroid/app/Notification;
+    move-result-object v0
+    return-object v0
+.end method
+
+
+.method public static post(Landroid/content/Context;ILjava/lang/String;Ljava/lang/String;)V
+    .registers 7
+    invoke-static {p0}, Lcom/flo/tamapoke/Notif;->channels(Landroid/content/Context;)Landroid/app/NotificationManager;
+    move-result-object v0
+    const-string v1, "alerts"
+    const/4 v2, 0x0
+    invoke-static {p0, v1, p2, p3, v2}, Lcom/flo/tamapoke/Notif;->build(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)Landroid/app/Notification;
+    move-result-object v1
+    invoke-virtual {v0, p1, v1}, Landroid/app/NotificationManager;->notify(ILandroid/app/Notification;)V
+    return-void
+.end method

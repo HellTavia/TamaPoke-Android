@@ -1357,6 +1357,15 @@ function renderClock() {
   setCur(34 + idiv(96 - textW(sl, 2), 2), LANG_PILL_Y + 8);
   printT(sl);
 
+  if (TP_EXT && bgAvailable()) {
+    const nl = gLang === LANG_JA ? 'つうち' : gLang === LANG_KO ? '알림' : 'NOTIF';
+    gfx.fillRoundRect(185, LANG_PILL_Y, 96, LANG_PILL_H, 8, bgEnabled ? UI_BAR_OK : UI_WHITE);
+    gfx.drawRoundRect(185, LANG_PILL_Y, 96, LANG_PILL_H, 8, UI_INK);
+    gfx.setTextColor(bgEnabled ? UI_BG_DAY : UI_INK);
+    setSize(2);
+    setCur(185 + idiv(96 - textW(nl, 2), 2), LANG_PILL_Y + 8);
+    printT(nl);
+  }
   gfx.fillRoundRect(LANG_PILL_X, LANG_PILL_Y, LANG_PILL_W, LANG_PILL_H, 8, UI_WHITE);
   gfx.drawRoundRect(LANG_PILL_X, LANG_PILL_Y, LANG_PILL_W, LANG_PILL_H, 8, UI_INK);
   const lp = `${LANG_CODES[gLang]} >`;
@@ -1396,6 +1405,7 @@ function clockTap(x, y) {
       if (audioEnabled()) sfxPlay(SFX_TAP);
       return;
     }
+    if (TP_EXT && bgAvailable() && x >= 185 && x < 281) { setBg(!bgEnabled); sfxPlay(SFX_TAP); return; }
     if (x >= LANG_PILL_X && x < LANG_PILL_X + LANG_PILL_W) {
       setLang((gLang + 1) % LANG_COUNT);
       applyLangFont();
@@ -2586,6 +2596,133 @@ function renderBattle() {
   }
 }
 
+// ============================================ fork : notifications en arrière-plan
+// Quand l'appli passe en arrière-plan, le jeu calcule ce qui va arriver
+// pendant l'absence (avec les règles hors ligne du firmware : barres qui
+// descendent jusqu'à 15) et confie au service Android une liste d'alarmes.
+// Le service, lui, écoute le podomètre écran verrouillé et prévient quand la
+// jauge de rencontre est pleine.
+//        ES, EN, FR, DE, IT, PT, JA, KO   (textes Unicode : affichés par Android)
+const NX = {
+  HUNGRY: ['¡%s tiene hambre!', '%s is hungry!', '%s a faim !', '%s hat Hunger!', '%s ha fame!', '%s está com fome!', '%sが おなかを すかせてる！', '%s이(가) 배고파해요!'],
+  THIRSTY: ['¡%s tiene sed!', '%s is thirsty!', '%s a soif !', '%s hat Durst!', '%s ha sete!', '%s está com sede!', '%sが のどを かわかせてる！', '%s이(가) 목말라해요!'],
+  DIRTY: ['%s necesita un baño', '%s needs a bath', "%s a besoin d'un bain", '%s braucht ein Bad', '%s ha bisogno di un bagno', '%s precisa de um banho', '%sを おふろに いれてあげて', '%s을(를) 씻겨 주세요'],
+  SAD: ['%s te echa de menos…', '%s misses you…', "%s s'ennuie de toi…", '%s vermisst dich…', '%s sente la tua mancanza…', '%s sente sua falta…', '%sが さびしがってる…', '%s이(가) 보고 싶어해요…'],
+  HATCH: ['¡Tu huevo ha eclosionado!', 'Your egg has hatched!', 'Ton œuf a éclos !', 'Dein Ei ist geschlüpft!', 'Il tuo uovo si è schiuso!', 'Seu ovo chocou!', 'タマゴが かえった！', '알이 부화했어요!'],
+  EVO: ['¡%s está listo para evolucionar!', '%s is ready to evolve!', '%s est prêt à évoluer !', '%s kann sich entwickeln!', '%s è pronto a evolversi!', '%s está pronto para evoluir!', '%sが しんか できるよ！', '%s이(가) 진화할 수 있어요!'],
+  FAREWELL: ['%s quiere decirte algo…', '%s wants to tell you something…', '%s veut te dire quelque chose…', '%s möchte dir etwas sagen…', '%s vuole dirti qualcosa…', '%s quer te dizer algo…', '%sが なにか いいたそう…', '%s이(가) 할 말이 있대요…'],
+  WILD: ['¡Un POKÉMON salvaje!', 'A wild POKÉMON appeared!', 'Un POKÉMON sauvage est apparu !', 'Ein wildes POKÉMON erscheint!', 'Un POKÉMON selvatico!', 'Um POKÉMON selvagem apareceu!', 'やせいの ポケモンが あらわれた！', '야생 포켓몬이 나타났다!'],
+  WILD2: ['Abre TamaPoke para luchar', 'Open TamaPoke to battle it', 'Ouvre TamaPoke pour le combattre', 'Öffne TamaPoke zum Kämpfen', 'Apri TamaPoke per combattere', 'Abra o TamaPoke para lutar', 'TamaPokeを ひらいて たたかおう', 'TamaPoke를 열어 배틀하세요'],
+  STREAK: ['¡Tu racha de %u días te espera!', 'Your %u-day streak is waiting!', "Ta série de %u jours t'attend !", 'Deine %u-Tage-Serie wartet!', 'La tua serie di %u giorni ti aspetta!', 'Sua sequência de %u dias espera!', '%uにち れんぞく きろくが まってるよ！', '%u일 연속 기록이 기다려요!'],
+  STEPS: ['pasos hoy', 'steps today', "pas aujourd'hui", 'Schritte heute', 'passi oggi', 'passos hoje', 'ほ（きょう）', '걸음 (오늘)'],
+};
+const NXT = (k, ...a) => sprintf(NX[k][gLang], ...a);
+// nom affichable par Android : on repasse les octets CP437 du jeu en Unicode
+const CP437_REV = (() => { const m = {}; for (const [ch, code] of Object.entries(CP437)) if (code > 127 && !m[code]) m[code] = ch; return m; })();
+function uni(s) {
+  if (gCjkFont) return s;
+  let o = '';
+  for (const ch of String(s)) { const c = ch.charCodeAt(0); o += c > 127 && CP437_REV[c] ? CP437_REV[c] : ch; }
+  return o;
+}
+function petNameU() { return pet.isEgg() ? 'TamaPoke' : uni(pet.nick ? pet.nick : dexName(pet.speciesId)); }
+
+let bgEnabled = true;
+function bgAvailable() { return !!(window.TPStore && window.TPStore.setPlan); }
+function loadBg() {
+  try { if (bgAvailable() && window.TPStore.isBackground) bgEnabled = !!window.TPStore.isBackground(); } catch (e) { bgEnabled = true; }
+}
+function setBg(on) {
+  bgEnabled = on;
+  try { if (window.TPStore && window.TPStore.setBackground) window.TPStore.setBackground(on); } catch (e) { /* rien */ }
+  sendPlan(true);
+}
+
+// alarmes prévues pendant l'absence (minutes réelles depuis maintenant)
+function buildAlerts() {
+  const out = [];
+  if (!bgEnabled || pet.ceremony || pet.awaitingStarter()) return out;
+  const now = Date.now();
+  const nm = petNameU();
+  const add = (min, x) => {
+    min = Math.ceil(min);
+    if (min >= 1 && min <= 14 * 24 * 60) out.push({ at: now + min * 60000, t: 'TamaPoke', x });
+  };
+  if (pet.isEgg()) {
+    add(Math.max(1, 3 - pet.ageMinutes), NXT('HATCH'));
+    return out;
+  }
+  if (!pet.sleeping) {
+    // hors ligne : nourriture -2/min, le reste -1/min, plancher 15 (alerte sous 25)
+    if (pet.fullness >= 25) add((pet.fullness - 24) / 2, NXT('HUNGRY', nm));
+    if (TP_EXT && pet.water >= 25) add(pet.water - 24, NXT('THIRSTY', nm));
+    if (pet.hygiene >= 25) add(pet.hygiene - 24, NXT('DIRTY', nm));
+    if (pet.joy >= 25) add(pet.joy - 24, NXT('SAD', nm));
+    // évolution : niveau atteint ET toutes les barres encore >= 40 à ce moment
+    const d = DEX_TBL[pet.speciesId];
+    if (d.evolvesTo) {
+      const needLv = Math.max(d.evolveLevel + pet.careMistakes, pet.evoDeclinedLv + 1);
+      const m = (needLv - 1) * MINUTES_PER_LEVEL - pet.ageMinutes;
+      const at = (v, rate) => Math.max(15, v - rate * m);
+      if (m > 0 && at(pet.fullness, 2) >= 40 && at(pet.joy, 1) >= 40 && at(pet.energy, 1) >= 40 &&
+          at(pet.hygiene, 1) >= 40 && (!TP_EXT || at(pet.water, 1) >= 40)) add(m, NXT('EVO', nm));
+    } else {
+      const m = Math.max(FAREWELL_AGE_MIN, pet.farDeclinedAge) - pet.ageMinutes;
+      if (m > 0) add(m, NXT('FAREWELL', nm));
+    }
+  }
+  // série : rappel à 19 h le prochain jour où il n'a pas encore été soigné
+  if (pet.streak >= 2) {
+    const local = rtcEpoch();
+    const day = Math.floor(local / 86400);
+    const target = (pet.lastCareDay >= day ? day + 1 : day) * 86400 + 19 * 3600;
+    if (target > local) add((target - local) / 60, NXT('STREAK', pet.streak));
+  }
+  out.sort((a, b) => a.at - b.at);
+  // deux besoins à moins de 10 min d'écart : une seule notification
+  const merged = [];
+  for (const a of out) {
+    const prev = merged[merged.length - 1];
+    if (prev && a.at - prev.at < 10 * 60000 && prev.n < 3) { prev.x += ' · ' + a.x; prev.n++; }
+    else merged.push({ ...a, n: 1 });
+  }
+  return merged.slice(0, 12).map(({ at, t, x }) => ({ at, t, x }));
+}
+
+function sendPlan(fg) {
+  if (!bgAvailable()) return;
+  const encReady = TP_EXT && !pet.isEgg() && pet.pendingEnc < 3 && pet.stepsToEnc > 0;
+  const plan = {
+    fg: !!fg,
+    base: prefs.get('stepLast', -1),
+    today: pet.stepsToday,
+    toEnc: bgEnabled && encReady ? pet.stepsToEnc : -1,
+    title: pet.isEgg() ? 'TamaPoke' : `${petNameU()} · ${uni(sprintf(T(S_LVL_FMT), pet.level()))}`,
+    lbl: NX.STEPS[gLang],
+    wildT: NXT('WILD'),
+    wildX: NXT('WILD2'),
+    a: fg ? [] : buildAlerts(),
+  };
+  try { window.TPStore.setPlan(JSON.stringify(plan)); } catch (e) { /* rien */ }
+}
+
+// ---- horloge dans la zone noire au-dessus de l'écran rond
+const LOCALES = ['es-ES', 'en-GB', 'fr-FR', 'de-DE', 'it-IT', 'pt-PT', 'ja-JP', 'ko-KR'];
+let lastClockTxt = '';
+function updateClock() {
+  const el = document.getElementById('clk-time');
+  if (!el) return;
+  const d = new Date(Date.now() + clockOffset * 1000);
+  const hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0');
+  let date = '';
+  try { date = d.toLocaleDateString(LOCALES[gLang], { weekday: 'long', day: 'numeric', month: 'long' }); } catch (e) { date = d.toDateString(); }
+  const txt = `${hh}:${mm}|${date}`;
+  if (txt === lastClockTxt) return;
+  lastClockTxt = txt;
+  el.textContent = `${hh}:${mm}`;
+  document.getElementById('clk-date').textContent = date;
+}
+
 // ============================================== intégration Android / page
 // barre de raccourcis sous l'écran rond : les gestes du firmware restent
 // valables, les boutons les rendent découvrables sur un téléphone
@@ -2601,6 +2738,7 @@ function updateNav() {
     const el = document.getElementById(id);
     if (el) el.querySelector('span').textContent = l[i];
   });
+  if (TP_EXT && typeof sendPlan === 'function') sendPlan(true);
 }
 function navAction(kind) {
   audio.ensure();
@@ -2658,6 +2796,7 @@ window.tpPause = function () {
   paused = true;
   pet.lastSeenEpoch = rtcEpoch();
   pet.save();
+  if (TP_EXT) sendPlan(false);
 };
 window.tpResume = function () {
   if (!paused) return;
@@ -2666,7 +2805,7 @@ window.tpResume = function () {
   if (mins > 0) pet.lastTick = millis();  // le temps passé est déjà appliqué
   lastClock = millis();
   galleryDirty = true;
-  if (TP_EXT) setTimeout(pollSteps, 600);  // le capteur se réenregistre dans onResume
+  if (TP_EXT) setTimeout(() => { pollSteps(); sendPlan(true); }, 600);  // le capteur se réenregistre dans onResume
 };
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) window.tpPause(); else window.tpResume();
@@ -2675,7 +2814,8 @@ window.addEventListener('pagehide', () => window.tpPause());
 
 function layout() {
   const nav = document.getElementById('nav');
-  const navH = nav ? nav.offsetHeight + 24 : 0;
+  const clk = document.getElementById('clock');
+  const navH = (nav ? nav.offsetHeight + 24 : 0) + (clk ? clk.offsetHeight + 16 : 0);
   const size = Math.floor(Math.min(window.innerWidth - 36, window.innerHeight - navH - 64, 720));
   canvas.style.width = canvas.style.height = `${Math.max(200, size)}px`;
   gfx.begin();
@@ -2708,5 +2848,8 @@ window.addEventListener('resize', layout);
 
 layout();
 setup();
+if (TP_EXT) { loadBg(); setTimeout(() => { pollSteps(); sendPlan(true); }, 800); }
+updateClock();
+setInterval(updateClock, 1000);
 requestAnimationFrame(frame);
 window.TP = { pet, prefs, version: APP_VERSION };

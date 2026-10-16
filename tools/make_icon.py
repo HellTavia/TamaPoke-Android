@@ -45,3 +45,28 @@ for name, size in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), (
     icon(size).save(out)
 icon(512).save(root / "icon-512.png")
 print("icônes écrites")
+
+
+# petite icône de notification : silhouette blanche de l'œuf (Android la teinte)
+def notif(size):
+    S = 96
+    im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    rows = [r for r in egg if any(ch != "." for ch in r)]
+    cols = [i for i in range(len(egg[0])) if any(r[i] != "." for r in egg)]
+    h, w = len(rows), cols[-1] - cols[0] + 1
+    px = min(S // h, S // w)
+    ox, oy = (S - w * px) // 2, (S - h * px) // 2
+    for y, row in enumerate(rows):
+        for x in range(cols[0], cols[-1] + 1):
+            if row[x] != ".":
+                d.rectangle((ox + (x - cols[0]) * px, oy + y * px,
+                             ox + (x - cols[0] + 1) * px - 1, oy + (y + 1) * px - 1), fill=(255, 255, 255, 255))
+    return im.resize((size, size), Image.NEAREST)
+
+
+for name, size in (("mdpi", 24), ("hdpi", 36), ("xhdpi", 48), ("xxhdpi", 72), ("xxxhdpi", 96)):
+    out = root / f"android/res/drawable-{name}/ic_notif.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    notif(size).save(out)
+print("icônes de notification écrites")

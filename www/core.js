@@ -14,7 +14,7 @@ const D = window.TP_DATA;
 // jeu se comporte exactement comme le firmware d'origine (test différentiel).
 let TP_EXT = true;
 const FW_VERSION = '1.17';
-const APP_VERSION = '1.17-android.2';
+const APP_VERSION = '1.17-android.3';
 
 // ===================================================================== utils
 const T0 = performance.now();
