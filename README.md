@@ -16,6 +16,10 @@ les sprites PMD animés.
 - **Combat** au tour par tour (le plus rapide commence) avec les stats ATQ/DEF/VIT de la fiche. À ton tour, un anneau se resserre sur l'adversaire : touche l'écran quand il entre dans la cible pour un coup parfait (×1,5). Combattre fatigue (énergie ≥ 20 requise).
 - **Victoire** = capture : l'espèce entre dans le Pokédex (et le Pokédex shiny), +1 ATQ/DEF d'entraînement, et tu peux garder son œuf : il remplace le prochain œuf tiré au sort.
 
+- **Notifications et arrière-plan** (v3) : service avec notification permanente (pas du jour), alerte de rencontre écran verrouillé, rappels faim/soif/bain/ennui/œuf/évolution/série, horloge au-dessus de l'écran rond. Pastille NOTIF dans Réglages.
+- **Duel entre amis** (v4–v5) : pas de réseau ni de Bluetooth. Chaque téléphone affiche une carte de combat (QR ou code texte) ; chacun scanne ou colle celle de l'autre. Le combat est calculé à partir des deux cartes (tirage pseudo-aléatoire dont la graine vient des deux codes, joueur 1 = carte au plus petit numéro) : il est identique sur les deux téléphones, un seul gagnant. Un **code de vérification** de 4 caractères s'affiche à la fin : s'il est le même chez les deux, c'est le même combat. La carte reste figée 24 h, même si le compagnon évolue (bouton « Nouvelle carte » pour la renouveler à la main). 5 duels récompensés par jour.
+- **Adversaires** (v6) : la carte (TPD2) contient un identifiant de dresseur permanent et un nom de dresseur facultatif. L'écran Duel liste chaque ami (nom ou surnom local modifiable) avec nombre de duels, victoires/défaites, son dernier Pokémon et la date. Un même combat rejoué n'est compté qu'une fois. Les cartes TPD1 des versions 4–5 restent lisibles.
+
 Avec `TP_EXT = false` (dans `core.js`), le jeu redevient exactement le firmware : c'est ce que vérifie le test différentiel.
 
 ## Ce qui change par rapport à la carte

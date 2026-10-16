@@ -55,6 +55,10 @@
     const-string v3, "TPStore"
     invoke-virtual {v0, v2, v3}, Landroid/webkit/WebView;->addJavascriptInterface(Ljava/lang/Object;Ljava/lang/String;)V
 
+    new-instance v2, Lcom/flo/tamapoke/Chrome;
+    invoke-direct {v2}, Lcom/flo/tamapoke/Chrome;-><init>()V
+    invoke-virtual {v0, v2}, Landroid/webkit/WebView;->setWebChromeClient(Landroid/webkit/WebChromeClient;)V
+
     invoke-virtual {p0, v0}, Landroid/app/Activity;->setContentView(Landroid/view/View;)V
 
     const-string v2, "file:///android_asset/www/index.html"

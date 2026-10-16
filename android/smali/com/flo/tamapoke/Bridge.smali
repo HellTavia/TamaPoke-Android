@@ -24,6 +24,7 @@
 .field private registered:Z
 .field private volatile steps:F
 .field private volatile state:I
+.field private volatile pendingPerm:Ljava/lang/String;
 
 
 .method public constructor <init>(Landroid/app/Activity;)V
@@ -137,14 +138,12 @@
 # Runnable : la demande de permission part du thread principal
 .method public run()V
     .registers 5
-    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
-    const/16 v1, 0x1d
-    if-lt v0, v1, :done
+    iget-object v3, p0, Lcom/flo/tamapoke/Bridge;->pendingPerm:Ljava/lang/String;
+    if-eqz v3, :done
     iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
     const/4 v1, 0x1
     new-array v1, v1, [Ljava/lang/String;
     const/4 v2, 0x0
-    const-string v3, "android.permission.ACTIVITY_RECOGNITION"
     aput-object v3, v1, v2
     const/16 v2, 0x2a
     invoke-virtual {v0, v1, v2}, Landroid/app/Activity;->requestPermissions([Ljava/lang/String;I)V
@@ -172,11 +171,76 @@
 
 
 .method public askStepPermission()V
-    .registers 2
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x1d
+    if-lt v0, v1, :done
+    const-string v0, "android.permission.ACTIVITY_RECOGNITION"
+    iput-object v0, p0, Lcom/flo/tamapoke/Bridge;->pendingPerm:Ljava/lang/String;
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-virtual {v0, p0}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    :done
+    return-void
+.end method
+
+
+# ------------------------------------------------------------------ duel
+.method public askCamera()V
+    .registers 3
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    const-string v0, "android.permission.CAMERA"
+    iput-object v0, p0, Lcom/flo/tamapoke/Bridge;->pendingPerm:Ljava/lang/String;
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-virtual {v0, p0}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    return-void
+.end method
+
+
+# 1 si la caméra est autorisée, 0 sinon
+.method public cameraState()I
+    .registers 3
     .annotation runtime Landroid/webkit/JavascriptInterface;
     .end annotation
     iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
-    invoke-virtual {v0, p0}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    const-string v1, "android.permission.CAMERA"
+    invoke-virtual {v0, v1}, Landroid/app/Activity;->checkSelfPermission(Ljava/lang/String;)I
+    move-result v0
+    if-nez v0, :no
+    const/4 v0, 0x1
+    return v0
+    :no
+    const/4 v0, 0x0
+    return v0
+.end method
+
+
+# partage du code de duel (SMS, WhatsApp...) via le menu « Partager » d'Android
+.method public shareText(Ljava/lang/String;)V
+    .registers 5
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    :try_start_0
+    new-instance v0, Landroid/content/Intent;
+    const-string v1, "android.intent.action.SEND"
+    invoke-direct {v0, v1}, Landroid/content/Intent;-><init>(Ljava/lang/String;)V
+    const-string v1, "text/plain"
+    invoke-virtual {v0, v1}, Landroid/content/Intent;->setType(Ljava/lang/String;)Landroid/content/Intent;
+    const-string v1, "android.intent.extra.TEXT"
+    invoke-virtual {v0, v1, p1}, Landroid/content/Intent;->putExtra(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;
+    const/4 v1, 0x0
+    invoke-static {v0, v1}, Landroid/content/Intent;->createChooser(Landroid/content/Intent;Ljava/lang/CharSequence;)Landroid/content/Intent;
+    move-result-object v0
+    const/high16 v1, 0x10000000
+    invoke-virtual {v0, v1}, Landroid/content/Intent;->addFlags(I)Landroid/content/Intent;
+    iget-object v1, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-virtual {v1, v0}, Landroid/app/Activity;->startActivity(Landroid/content/Intent;)V
+    :try_end_0
+    .catch Ljava/lang/Exception; {:try_start_0 .. :try_end_0} :catch_0
+    return-void
+    :catch_0
     return-void
 .end method
 

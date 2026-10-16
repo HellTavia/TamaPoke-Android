@@ -2264,10 +2264,12 @@ function pedTap(x, y) {
     try { window.TPStore.askStepPermission(); } catch (e) { /* rien */ }
     return;
   }
-  if (pet.canBattle() && y >= 352 && y <= 394 && x >= 133 && x <= 333) {
-    pedOpen = false;
-    openBattle();
-    return;
+  if (y >= 352 && y <= 394) {
+    const both = pet.canBattle();
+    if (both && x >= 113 && x < 228) { pedOpen = false; openBattle(); return; }
+    if ((both && x >= 238 && x <= 353) || (!both && x >= 133 && x <= 333)) {
+      if (typeof openDuel === 'function') { openDuel(); return; }
+    }
   }
   pedOpen = false;
 }
@@ -2325,12 +2327,21 @@ function renderPed() {
   gfx.setTextColor(hc);
   setCur(centerX(hint, 2), 328);
   printT(hint);
-  if (pet.canBattle()) {
-    gfx.fillRoundRect(133, 352, 200, 42, 14, UI_BAR_OK);
+  const both = pet.canBattle();
+  const duelLbl = DUEL_BTN[gLang];
+  setSize(2);
+  if (both) {
+    gfx.fillRoundRect(113, 352, 115, 42, 14, UI_BAR_OK);
     gfx.setTextColor(UI_WHITE);
-    setSize(3);
-    setCur(centerX(T(S_BATTLE), 3), 362);
+    setCur(113 + idiv(115 - textW(T(S_BATTLE), 2), 2), 366);
     printT(T(S_BATTLE));
+  }
+  if (!pet.isEgg()) {
+    const dx = both ? 238 : 133, dw = both ? 115 : 200;
+    gfx.fillRoundRect(dx, 352, dw, 42, 14, 0x4C98);
+    gfx.setTextColor(UI_WHITE);
+    setCur(dx + idiv(dw - textW(duelLbl, 2), 2), 366);
+    printT(duelLbl);
   }
   gfx.setTextColor(UI_TRACK);
   setSize(2);
@@ -2378,21 +2389,40 @@ function startFight() {
 }
 function newTurn() {
   bt.t0 = millis(); bt.applied = false; bt.crit = false; bt.tapped = false;
-  bt.msg = bt.turn === 'me' ? TX('X_TAP_HINT')
-         : sprintf(TX('X_ATTACKS'), (bt.wild.shiny ? '*' : '') + dexName(bt.wild.dex));
+  bt.msg = bt.turn === 'me' ? (bt.duel ? sprintf(TX('X_ATTACKS'), myName()) : TX('X_TAP_HINT'))
+         : sprintf(TX('X_ATTACKS'), oppName());
 }
-function myName() { return pet.nick ? pet.nick : dexName(pet.speciesId); }
+function myName() {
+  // en duel, on affiche sa carte (figée) : même forme que chez l'ami
+  if (bt && bt.duel) return bt.myCard.nick ? bt.myCard.nick : dexName(bt.myCard.dex);
+  return pet.nick ? pet.nick : dexName(pet.speciesId);
+}
+const duelMePmd = new PmdMon();
+function oppName() {
+  const w = bt.wild;
+  return (w.shiny ? '*' : '') + (bt.duel && w.nick ? w.nick : dexName(w.dex));
+}
+function startDuelFight() {
+  bt.phase = 'fight';
+  bt.ei = 0;
+  bt.turn = bt.sim.events[0].by === bt.myRole ? 'me' : 'wild';
+  newTurn();
+}
 function ringRadius(t) { return 24 + Math.max(0, (HIT_AT - t) / HIT_AT) * 72; }
 
 function battleTap(x, y) {
   const now = millis();
   if (bt.phase === 'intro') {
     if (y >= 384 && y <= 428) {
-      if (x >= 125 && x < 230) startFight();
-      else if (x >= 236 && x <= 341) endBattle(-1);
+      if (x >= 125 && x < 230) { if (bt.duel) startDuelFight(); else startFight(); }
+      else if (x >= 236 && x <= 341) {
+        if (bt.duel) { battleOpen = false; wildPmd.unload(); bt = null; }
+        else endBattle(-1);
+      }
     }
     return;
   }
+  if (bt.phase === 'fight' && bt.duel) return;
   if (bt.phase === 'fight') {
     if (bt.turn === 'me' && !bt.applied && !bt.tapped) {
       bt.tapped = true;
@@ -2410,7 +2440,7 @@ function battleTap(x, y) {
   if (bt.phase === 'result' && now - bt.t0 > 1200) finishResult();
 }
 function finishResult() {
-  if (bt.result === 1) { bt.phase = 'egg'; bt.t0 = millis(); return; }
+  if (bt.result === 1 && !bt.duel) { bt.phase = 'egg'; bt.t0 = millis(); return; }
   battleOpen = false; wildPmd.unload(); bt = null;
 }
 
@@ -2462,16 +2492,30 @@ function renderBattle() {
     const att = bt.turn === 'me' ? bt.me : w;
     const def = bt.turn === 'me' ? w : bt.me;
     if (!bt.applied && t >= HIT_AT) {
-      const dmg = battleDamage(att.atk, def.def, bt.turn === 'me' && bt.crit);
+      if (bt.duel) bt.crit = bt.sim.events[bt.ei].crit;
+      const dmg = bt.duel ? bt.sim.events[bt.ei].dmg : battleDamage(att.atk, def.def, bt.turn === 'me' && bt.crit);
       def.hp = Math.max(0, def.hp - dmg);
       bt.applied = true;
       const tgt = bt.turn === 'me' ? WILD_POS : ME_POS;
-      bt.popups.push({ x: tgt.x, y: tgt.y - 150, text: `-${dmg}`, t0: now, crit: bt.turn === 'me' && bt.crit });
+      bt.popups.push({ x: tgt.x, y: tgt.y - 150, text: `-${dmg}`, t0: now, crit: (bt.turn === 'me' || bt.duel) && bt.crit });
       bt.hurt[bt.turn === 'me' ? 'wild' : 'me'] = now + 450;
-      if (bt.turn === 'me') bt.msg = bt.crit ? TX('X_CRIT') : sprintf(TX('X_ATTACKS'), myName());
+      if (bt.turn === 'me' || bt.duel) bt.msg = bt.crit ? TX('X_CRIT') : sprintf(TX('X_ATTACKS'), bt.turn === 'me' ? myName() : oppName());
       sfxPlay(bt.turn === 'me' && bt.crit ? SFX_PLAY : SFX_HIT);
     }
-    if (t >= TURN_MS) {
+    if (t >= TURN_MS && bt.duel) {
+      bt.ei++;
+      if (bt.ei >= bt.sim.events.length) {
+        bt.result = bt.sim.winner === bt.myRole ? 1 : 0;
+        bt.phase = 'result';
+        bt.t0 = now;
+        duelResult(bt.result === 1, bt.opp, bt.verif);
+        sfxPlay(bt.result ? SFX_WIN : SFX_BYE);
+        bt.msg = bt.result ? TX('X_WIN') : TX('X_LOSE');
+      } else {
+        bt.turn = bt.sim.events[bt.ei].by === bt.myRole ? 'me' : 'wild';
+        newTurn();
+      }
+    } else if (t >= TURN_MS) {
       if (w.hp <= 0 || bt.me.hp <= 0) {
         bt.result = w.hp <= 0 ? 1 : 0;
         bt.phase = 'result';
@@ -2484,7 +2528,7 @@ function renderBattle() {
         newTurn();
       }
     }
-  } else if (bt.phase === 'result' && t > 4000) {
+  } else if (bt.phase === 'result' && t > (bt.duel ? 60000 : 4000)) {
     finishResult();
     if (!bt) return;
   }
@@ -2511,20 +2555,21 @@ function renderBattle() {
     if (bt.phase === 'fight' && bt.turn === who && t > HIT_AT - 300 && t < HIT_AT + 300 && m.has(PMD_ATTACK)) return PMD_ATTACK;
     return PMD_IDLE;
   };
-  const caught = bt.phase === 'egg' || (bt.phase === 'result' && bt.result === 1 && t > 1600);
+  const caught = !bt.duel && (bt.phase === 'egg' || (bt.phase === 'result' && bt.result === 1 && t > 1600));
   if (wildPmd.loaded && !caught) {
     const a = actFor(wildPmd, 'wild');
     const blink = timeLeft(bt.hurt.wild) && Math.floor(now / 80) % 2 === 0;
     if (!blink) drawPmdActM(wildPmd, a, WILD_POS.x - lunge('wild'), WILD_POS.y, now, true, false, 3);
   }
-  if (pmd.loaded) {
-    const a = actFor(pmd, 'me');
+  const mp = bt.duel ? duelMePmd : pmd;
+  if (mp.loaded) {
+    const a = actFor(mp, 'me');
     const blink = timeLeft(bt.hurt.me) && Math.floor(now / 80) % 2 === 0;
-    if (!blink) drawPmdActM(pmd, a, ME_POS.x + lunge('me'), ME_POS.y, now, true, false, 3);
+    if (!blink) drawPmdActM(mp, a, ME_POS.x + lunge('me'), ME_POS.y, now, true, false, 3);
   }
 
   // anneau de timing sur l'adversaire pendant mon tour
-  if (bt.phase === 'fight' && bt.turn === 'me' && !bt.applied) {
+  if (bt.phase === 'fight' && bt.turn === 'me' && !bt.applied && !bt.duel) {
     const cy = WILD_POS.y - 60;
     gfx.drawCircle(WILD_POS.x, cy, 30, UI_WHITE);
     gfx.drawCircle(WILD_POS.x, cy, 31, UI_WHITE);
@@ -2546,8 +2591,9 @@ function renderBattle() {
   }
 
   // boîtes de PV
-  drawHpBox(110, 60, (w.shiny ? '*' : '') + dexName(w.dex), w.lv, Math.round(bt.shownHp.wild), w.max);
-  drawHpBox(214, 266, (pet.shiny ? '*' : '') + myName(), pet.level(), Math.round(bt.shownHp.me), bt.me.max);
+  drawHpBox(110, 60, oppName(), w.lv, Math.round(bt.shownHp.wild), w.max);
+  const myShy = bt.duel ? bt.myCard.sh : pet.shiny, myLv = bt.duel ? bt.myCard.lv : pet.level();
+  drawHpBox(214, 266, (myShy ? '*' : '') + myName(), myLv, Math.round(bt.shownHp.me), bt.me.max);
 
   // message
   gfx.setTextColor(ink);
@@ -2555,6 +2601,15 @@ function renderBattle() {
   setCur(centerX(bt.msg, 2), 356);
   printT(bt.msg);
 
+  if (bt.duel && bt.phase === 'result') {
+    const v = sprintf(DX.VERIF[gLang], bt.verif);
+    gfx.fillRoundRect(CX - 90, 380, 180, 40, 12, UI_WHITE);
+    gfx.drawRoundRect(CX - 90, 380, 180, 40, 12, UI_INK);
+    gfx.setTextColor(UI_INK);
+    setSize(3);
+    setCur(centerX(v, 3), 390);
+    printT(v);
+  }
   if (bt.phase === 'intro') {
     gfx.fillRoundRect(125, 384, 105, 44, 12, UI_BAR_OK);
     gfx.fillRoundRect(236, 384, 105, 44, 12, UI_TRACK);
@@ -2565,7 +2620,7 @@ function renderBattle() {
     gfx.setTextColor(UI_INK);
     setCur(236 + idiv(105 - textW(TX('X_FLEE'), 2), 2), 398);
     printT(TX('X_FLEE'));
-  } else if (bt.phase === 'result' && bt.result === 1 && t > 1600) {
+  } else if (bt.phase === 'result' && bt.result === 1 && t > 1600 && !bt.duel) {
     const c = sprintf(TX('X_CAUGHT'), (w.shiny ? '*' : '') + dexName(w.dex));
     gfx.fillRoundRect(73, 150, 320, 70, 16, UI_BAR_WARN);
     gfx.drawRoundRect(73, 150, 320, 70, 16, UI_INK);
@@ -2770,7 +2825,11 @@ function navAction(kind) {
 // bouton « retour » d'Android : ferme l'écran en cours ; sinon l'appli passe
 // en arrière-plan (le jeu continue de vivre, comme la carte dans sa poche)
 window.tpBack = function () {
-  if (battleOpen) { if (bt.phase === 'intro') endBattle(-1); return true; }
+  if (document.getElementById('duel').classList.contains('open')) { closeDuel(); return true; }
+  if (battleOpen) {
+    if (bt.phase === 'intro') { if (bt.duel) { battleOpen = false; wildPmd.unload(); bt = null; } else endBattle(-1); }
+    return true;
+  }
   if (pedOpen) { pedOpen = false; return true; }
   if (kbOpen) { kbOpen = false; return true; }
   if (galleryOpen) {

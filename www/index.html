@@ -30,6 +30,39 @@
   #info { position:fixed; right:12px; top: calc(env(safe-area-inset-top) + 12px); width:36px; height:36px;
     border-radius:50%; border:1px solid var(--ring); background:var(--bezel); color:var(--dim);
     font:600 16px/1 Georgia, serif; font-style:italic; }
+  #duel { position:fixed; inset:0; background:var(--bg); display:none; overflow:auto;
+    padding: calc(env(safe-area-inset-top) + 18px) 18px 28px; color:#d8dcf0; text-align:center; }
+  #duel.open { display:block; }
+  #duel h2 { margin:0 0 4px; font-size:20px; color:#fff; }
+  #duel-how { margin:0 auto 14px; max-width:360px; font-size:13px; line-height:1.45; color:var(--dim); }
+  #duel-qr { width:200px; height:200px; image-rendering:pixelated; border-radius:12px; background:#fff; padding:0; }
+  #duel-me { margin:8px 0 2px; font-size:13px; color:#eef0fa; }
+  #duel-code { font:12px ui-monospace, monospace; color:var(--dim); word-break:break-all; user-select:all; -webkit-user-select:all; }
+  #duel-last, #duel-check { font-size:12px; color:var(--dim); margin:2px auto; max-width:360px; }
+  #duel-rec { margin:4px 0 4px; font-size:12px; color:var(--dim); }
+  #duel video { width:100%; max-width:320px; border-radius:12px; margin:8px auto 0; display:block; background:#000; }
+  #duel video[hidden], #duel-pastebox[hidden] { display:none; }
+  #duel .row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin:8px 0; }
+  #duel button { font:inherit; font-weight:600; font-size:14px; color:#fff; background:var(--bezel);
+    border:1px solid var(--ring); border-radius:12px; padding:11px 14px; min-height:44px; }
+  #duel button:disabled { opacity:.35; }
+  #duel-fight { background:#e8503a !important; border-color:#e8503a !important; min-width:200px; font-size:17px !important; }
+  #duel-status { min-height:20px; margin:8px auto; max-width:360px; font-size:14px; }
+  #duel-status.ok { color:#7fd18b; } #duel-status.err { color:#ff8a78; }
+  #duel-input { width:100%; max-width:340px; min-height:64px; border-radius:10px; border:1px solid var(--ring);
+    background:#161922; color:#fff; font:13px ui-monospace, monospace; padding:8px; }
+  #duel-trainer { margin:14px auto 4px; max-width:360px; }
+  #duel-trainer label { font-size:13px; color:var(--dim); }
+  #duel-tname, .falias { font:600 15px ui-monospace, monospace; letter-spacing:1px; text-transform:uppercase; color:#fff;
+    background:#161922; border:1px solid var(--ring); border-radius:10px; padding:10px; width:170px; }
+  #duel-friends { margin:14px auto 0; max-width:380px; text-align:left; }
+  #duel-friends h3 { font-size:14px; color:#fff; margin:0 0 8px; }
+  #duel-friends .empty { font-size:13px; color:var(--dim); }
+  .friend { background:#161922; border:1px solid var(--ring); border-radius:12px; padding:8px 12px; margin-bottom:8px; }
+  #duel .friend .fname { all:unset; font-weight:700; font-size:15px; color:#fff; cursor:pointer; }
+  .friend .finfo { display:block; font-size:12px; color:var(--dim); margin-top:2px; }
+  .friend .fbar { height:5px; background:#e8503a55; border-radius:3px; margin-top:6px; overflow:hidden; }
+  .friend .fbar i { display:block; height:100%; background:#58b868; }
   #about { position:fixed; inset:0; background:rgba(8,9,12,.92); display:none; overflow:auto;
     padding: calc(env(safe-area-inset-top) + 24px) 22px 32px; font-size:14px; line-height:1.55; color:#c9cde0; }
   #about.open { display:block; }
@@ -52,15 +85,45 @@
   </nav>
   <button id="info" type="button" aria-label="À propos">i</button>
 
+  <div id="duel" role="dialog">
+    <h2 id="duel-title">Duel</h2>
+    <p id="duel-how"></p>
+    <canvas id="duel-qr" width="200" height="200"></canvas>
+    <div id="duel-me"></div>
+    <div id="duel-code"></div>
+    <div id="duel-rec"></div>
+    <div id="duel-last"></div>
+    <div class="row">
+      <button id="duel-scan" type="button">Scanner</button>
+      <button id="duel-paste" type="button">Coller</button>
+      <button id="duel-share" type="button">Partager</button>
+      <button id="duel-new" type="button">Nouvelle carte</button>
+    </div>
+    <video id="duel-video" playsinline muted hidden></video>
+    <div id="duel-pastebox" hidden><textarea id="duel-input" placeholder="TPD2-…"></textarea></div>
+    <div id="duel-status"></div>
+    <div class="row"><button id="duel-fight" type="button" disabled>COMBATTRE</button></div>
+    <p id="duel-check"></p>
+    <div id="duel-trainer">
+      <label id="duel-tname-lbl" for="duel-tname">Ton nom de dresseur</label>
+      <div class="row"><input id="duel-tname" maxlength="10" autocapitalize="characters" autocomplete="off" spellcheck="false">
+      <button id="duel-tname-ok" type="button">OK</button></div>
+    </div>
+    <div id="duel-friends"></div>
+    <div class="row"><button id="duel-close" type="button">Fermer</button></div>
+  </div>
+
   <div id="about" role="dialog">
     <h2>TamaPoke pour Android</h2>
     <p>Portage du tamagotchi TamaPoke (firmware v1.17 pour ESP32-S3) en application Android. Mêmes règles et mêmes chiffres que la carte : une heure réelle = un niveau, la créature continue de vieillir appli fermée (jusqu'à 2 semaines).</p>
     <h3>Gestes</h3>
     <p>Bouton verre : faire boire (jauge EAU) · Balade (ou la pastille des pas en haut) : podomètre — en marchant, une jauge se remplit et des POKEMON sauvages apparaissent (3 en attente max). Combat : touche l'écran quand l'anneau entre dans la cible pour un coup parfait. Victoire = capture dans le Pokédex, et tu peux garder son œuf pour la prochaine éclosion.</p>
+    <p>Duel entre amis (Balade → DUEL) : chacun scanne le QR de l'autre (ou colle le code reçu par message) ; le combat est calculé à partir des deux cartes, donc identique sur les deux téléphones, sans Bluetooth ni réseau. 5 duels récompensés par jour.</p>
     <p>Toucher l'œuf pour l'ouvrir · toucher la créature pour la caresser · glisser à gauche : Pokédex · glisser vers le haut : fiche (glisser à gauche/droite pour les 4 pages) · glisser vers le bas : heure, son, langue · appui long 3 s sur la créature : la relâcher · bouton retour : fermer l'écran en cours.</p>
     <h3>Crédits et licences</h3>
     <p>Jeu original : <b>TamaPoke</b> par Quique Tortosa — code sous licence MIT. <a href="https://github.com/socquique/TamaPoke">github.com/socquique/TamaPoke</a></p>
     <p>Sprites : <b>PMD SpriteCollab</b> et ses artistes — CC BY-NC 4.0 (usage non commercial). <a href="https://github.com/PMDCollab/SpriteCollab">github.com/PMDCollab/SpriteCollab</a></p>
+    <p>QR codes : qrcode-generator (Kazuhiko Arase, MIT) et jsQR (Cosmo Wolfe, Apache 2.0).</p>
     <p>Statistiques de base : PokéAPI. Police bitmap 5×7 : Adafruit GFX / Arduino_GFX.</p>
     <p>Pokémon et les noms, personnages et designs associés sont des marques et © de Nintendo / Game Freak / The Pokémon Company. Projet de fan personnel, non commercial, ni affilié ni approuvé par ces sociétés. Ne pas vendre ni publier sur un store.</p>
     <p id="ver" style="color:#8a90a6"></p>
@@ -69,7 +132,10 @@
 
   <script src="data.js"></script>
   <script src="core.js"></script>
+  <script src="lib/qrcode.js"></script>
+  <script src="lib/jsQR.js"></script>
   <script src="game.js"></script>
+  <script src="duel.js"></script>
   <script>
     (function () {
       var about = document.getElementById('about');
