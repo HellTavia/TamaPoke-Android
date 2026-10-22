@@ -19,6 +19,7 @@
 .field private sm:Landroid/hardware/SensorManager;
 .field private registered:Z
 .field private lastUpdate:J
+.field private lastWidget:J
 
 
 .method public constructor <init>()V
@@ -236,6 +237,11 @@
     invoke-interface {v2, v4, v10}, Landroid/content/SharedPreferences;->getBoolean(Ljava/lang/String;Z)Z
     move-result v10
     if-nez v10, :commit
+    # heures calmes (v17) : on n'annonce pas ; ce sera fait au premier pas après
+    const/4 v10, 0x0
+    invoke-static {p0, v10}, Lcom/flo/tamapoke/Notif;->quiet(Landroid/content/Context;Z)Z
+    move-result v10
+    if-nez v10, :commit
     const-string v4, "bg_encN"
     const/4 v10, 0x1
     invoke-interface {v3, v4, v10}, Landroid/content/SharedPreferences$Editor;->putBoolean(Ljava/lang/String;Z)Landroid/content/SharedPreferences$Editor;
@@ -251,6 +257,7 @@
     invoke-static {p0, v4, v10, v11}, Lcom/flo/tamapoke/Notif;->post(Landroid/content/Context;ILjava/lang/String;Ljava/lang/String;)V
 
     :commit
+    invoke-direct {p0, v2, v3, v7}, Lcom/flo/tamapoke/PetService;->checkInc(Landroid/content/SharedPreferences;Landroid/content/SharedPreferences$Editor;I)V
     invoke-interface {v3}, Landroid/content/SharedPreferences$Editor;->apply()V
 
     # notification permanente rafraîchie au plus toutes les 15 s
@@ -263,7 +270,61 @@
     if-ltz v10, :ret
     iput-wide v4, p0, Lcom/flo/tamapoke/PetService;->lastUpdate:J
     invoke-direct {p0}, Lcom/flo/tamapoke/PetService;->showStatus()V
+    # widget : au plus toutes les bg_wgt ms (mode Équilibré : 5 min)
+    iget-wide v6, p0, Lcom/flo/tamapoke/PetService;->lastWidget:J
+    sub-long v6, v4, v6
+    invoke-direct {p0}, Lcom/flo/tamapoke/PetService;->prefs()Landroid/content/SharedPreferences;
+    move-result-object v2
+    const-string v3, "bg_wgt"
+    const-wide/16 v8, 0x3a98
+    invoke-interface {v2, v3, v8, v9}, Landroid/content/SharedPreferences;->getLong(Ljava/lang/String;J)J
+    move-result-wide v8
+    cmp-long v10, v6, v8
+    if-ltz v10, :ret
+    iput-wide v4, p0, Lcom/flo/tamapoke/PetService;->lastWidget:J
+    invoke-static {p0}, Lcom/flo/tamapoke/Widget;->render(Landroid/content/Context;)V
 
     :ret
+    return-void
+.end method
+
+
+# l'œuf de l'incubateur a reçu assez de pas : on prévient (une fois)
+.method private checkInc(Landroid/content/SharedPreferences;Landroid/content/SharedPreferences$Editor;I)V
+    .registers 10
+    const-string v0, "bg_incLeft"
+    const/4 v1, -0x1
+    invoke-interface {p1, v0, v1}, Landroid/content/SharedPreferences;->getInt(Ljava/lang/String;I)I
+    move-result v1
+    if-ltz v1, :done
+    if-lt p3, v1, :done
+    const-string v0, "bg_incN"
+    const/4 v2, 0x0
+    invoke-interface {p1, v0, v2}, Landroid/content/SharedPreferences;->getBoolean(Ljava/lang/String;Z)Z
+    move-result v2
+    if-nez v2, :done
+    const-string v0, "bg_fg"
+    const/4 v2, 0x0
+    invoke-interface {p1, v0, v2}, Landroid/content/SharedPreferences;->getBoolean(Ljava/lang/String;Z)Z
+    move-result v2
+    if-nez v2, :done
+    const/4 v2, 0x1
+    invoke-static {p0, v2}, Lcom/flo/tamapoke/Notif;->quiet(Landroid/content/Context;Z)Z
+    move-result v2
+    if-nez v2, :done
+    const-string v0, "bg_incN"
+    const/4 v2, 0x1
+    invoke-interface {p2, v0, v2}, Landroid/content/SharedPreferences$Editor;->putBoolean(Ljava/lang/String;Z)Landroid/content/SharedPreferences$Editor;
+    const-string v0, "bg_incT"
+    const-string v2, "TamaPoke"
+    invoke-interface {p1, v0, v2}, Landroid/content/SharedPreferences;->getString(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v3
+    const-string v0, "bg_incX"
+    const-string v2, ""
+    invoke-interface {p1, v0, v2}, Landroid/content/SharedPreferences;->getString(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v4
+    const/16 v0, 0x33
+    invoke-static {p0, v0, v3, v4}, Lcom/flo/tamapoke/Notif;->post(Landroid/content/Context;ILjava/lang/String;Ljava/lang/String;)V
+    :done
     return-void
 .end method

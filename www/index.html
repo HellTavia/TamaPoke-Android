@@ -20,10 +20,10 @@
     box-shadow: 0 0 0 2px var(--ring), 0 18px 50px rgba(0,0,0,.55), inset 0 2px 8px rgba(255,255,255,.04); }
   #screen { display:block; border-radius:50%; touch-action:none; background:#000;
     image-rendering: pixelated; image-rendering: crisp-edges; }
-  #nav { display:flex; gap:8px; flex-wrap:nowrap; }
+  #nav { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; max-width:330px; }
   #nav button { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
     font:inherit; font-size:12px; font-weight:600; color:var(--ink); background:var(--bezel);
-    border:1px solid var(--ring); border-radius:16px; width:84px; padding:8px 4px; min-height:56px;
+    border:1px solid var(--ring); border-radius:16px; width:72px; padding:8px 2px; min-height:56px;
     cursor:pointer; white-space:nowrap; overflow:hidden; }
   #nav button:active { background:var(--ring); }
   #nav svg { width:20px; height:20px; flex:none; }
@@ -37,6 +37,13 @@
   #duel-how { margin:0 auto 14px; max-width:360px; font-size:13px; line-height:1.45; color:var(--dim); }
   #duel-qr { width:200px; height:200px; image-rendering:pixelated; border-radius:12px; background:#fff; padding:0; }
   #duel-me { margin:8px 0 2px; font-size:13px; color:#eef0fa; }
+  #duel-team h3 { margin:14px 0 2px; font-size:15px; color:#fff; }
+  #duel-team .small { font-size:12px; color:var(--dim); margin:2px auto 6px; max-width:360px; }
+  #duel-team .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; max-width:360px; margin:6px auto; }
+  #duel-team button.mon { position:relative; display:flex; flex-direction:column; align-items:center; gap:1px; padding:5px 3px; font-size:11px; border-radius:12px; }
+  #duel-team button.mon img { width:44px; height:44px; image-rendering:pixelated; object-fit:contain; }
+  #duel-team button.mon .ml { font-weight:400; color:var(--dim); }
+  #duel-team button.mon.sel { border-color:#f8d030; box-shadow:0 0 0 2px #f8d030 inset; }
   #duel-code { font:12px ui-monospace, monospace; color:var(--dim); word-break:break-all; user-select:all; -webkit-user-select:all; }
   #duel-last, #duel-check { font-size:12px; color:var(--dim); margin:2px auto; max-width:360px; }
   #duel-rec { margin:4px 0 4px; font-size:12px; color:var(--dim); }
@@ -63,6 +70,81 @@
   .friend .finfo { display:block; font-size:12px; color:var(--dim); margin-top:2px; }
   .friend .fbar { height:5px; background:#e8503a55; border-radius:3px; margin-top:6px; overflow:hidden; }
   .friend .fbar i { display:block; height:100%; background:#58b868; }
+  .sheet { position:fixed; inset:0; background:var(--bg); display:none; overflow:auto;
+    padding: calc(env(safe-area-inset-top) + 18px) 18px 28px; color:#d8dcf0; text-align:center; }
+  .sheet.open { display:block; }
+  .sheet h2 { margin:0 0 4px; font-size:20px; color:#fff; }
+  .sheet h3 { margin:18px 0 4px; font-size:16px; color:#fff; }
+  .sheet .how { margin:0 auto 10px; max-width:360px; font-size:13px; line-height:1.45; color:var(--dim); }
+  .sheet .row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin:8px 0; }
+  .sheet button { font:inherit; font-weight:600; font-size:14px; color:#fff; background:var(--bezel);
+    border:1px solid var(--ring); border-radius:12px; padding:11px 14px; min-height:44px; }
+  .sheet button:disabled { opacity:.35; }
+  .sheet button.on { background:#58b868; border-color:#58b868; }
+  .sheet button.main { background:#e8503a; border-color:#e8503a; min-width:200px; font-size:16px; }
+  .sheet button.blue { background:#4f93c4; border-color:#4f93c4; }
+  .sheet .status { min-height:20px; margin:8px auto; max-width:360px; font-size:14px; }
+  .sheet .status.ok { color:#7fd18b; } .sheet .status.err { color:#ff8a78; }
+  .sheet textarea { width:100%; max-width:340px; min-height:64px; border-radius:10px; border:1px solid var(--ring);
+    background:#161922; color:#fff; font:13px ui-monospace, monospace; padding:8px; }
+  .sheet video { width:100%; max-width:320px; border-radius:12px; margin:8px auto 0; display:block; background:#000; }
+  .sheet canvas.qr { width:240px; height:240px; image-rendering:pixelated; border-radius:12px; background:#fff; margin:8px auto 0; display:block; }
+  .sheet [hidden] { display:none !important; }
+  .sheet .small { font-size:12px; color:var(--dim); }
+  .sheet .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(92px,1fr)); gap:8px; max-width:420px; margin:8px auto; }
+  .sheet button.mon { position:relative; display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 4px;
+    min-height:0; font-size:12px; border-radius:12px; }
+  .sheet button.mon img { width:56px; height:56px; image-rendering:pixelated; object-fit:contain; }
+  .sheet button.mon .mn { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sheet button.mon .ml { font-size:11px; font-weight:400; color:var(--dim); }
+  .sheet button.mon.sel { border-color:#f8d030; box-shadow:0 0 0 2px #f8d030 inset; }
+  .sheet button.mon.lock { opacity:.55; }
+  .sheet button.mon .badge { position:absolute; top:4px; right:6px; color:#8fc8ea; }
+  .sheet .detail { display:flex; gap:12px; align-items:center; justify-content:center; text-align:left; margin:12px auto 4px; max-width:380px; }
+  .sheet .detail img { width:96px; height:96px; image-rendering:pixelated; object-fit:contain; background:#000; border-radius:12px; }
+  .sheet .tchip { display:inline-block; margin:4px 4px 2px 0; padding:2px 8px; border-radius:8px; font-size:11px; font-weight:700; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,.5); }
+  .sheet #pc-sorts button { padding:6px 12px; font-size:13px; }
+  .sheet #pc-q, .sheet #pc-type { font:inherit; font-size:14px; color:#fff; background:var(--bezel); border:1px solid var(--ring);
+    border-radius:10px; padding:8px 10px; }
+  .sheet #pc-q { flex:1 1 150px; max-width:210px; } .sheet #pc-type { flex:0 1 150px; }
+  .sheet button.mon.dim { opacity:.3; }
+  .sheet button.mon .badge.fav { color:#ff7a90; }
+  .sheet button.fav { border-color:#ff7a90; color:#ffb3c0; }
+  .sheet .tabs button { padding:7px 12px; font-size:13px; }
+  .sheet .nsq, .sheet .nsc { display:flex; flex-direction:column; gap:8px; align-items:flex-start; max-width:340px; margin:6px auto; text-align:left; font-size:14px; }
+  .sheet .nsq select { font:inherit; color:#fff; background:var(--bezel); border:1px solid var(--ring); border-radius:8px; padding:4px 6px; }
+  .sheet .nsc label.off { opacity:.4; }
+  .sheet input[type=checkbox] { width:18px; height:18px; vertical-align:-3px; accent-color:#58b868; }
+  .sheet .zone { max-width:380px; margin:6px auto 4px; padding:10px 12px; border:1px solid var(--ring); border-radius:12px; background:var(--bezel); }
+  .sheet .chal, .sheet .item, .sheet .badge { max-width:380px; margin:8px auto; padding:10px 12px; border-radius:12px; background:var(--bezel);
+    border:1px solid var(--ring); text-align:left; }
+  .sheet .chal.done { border-color:#58b868; }
+  .sheet .chal .ct { color:#fff; font-weight:600; }
+  .sheet .chal .cr { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:6px; }
+  .sheet .chal .cr button { padding:6px 14px; }
+  .sheet .bar { height:8px; border-radius:4px; background:#2a2f40; overflow:hidden; margin-top:6px; }
+  .sheet .bar.wide { max-width:320px; margin:10px auto 4px; height:12px; }
+  .sheet .bar span { display:block; height:100%; background:#58b868; border-radius:4px; }
+  .sheet .ok { color:#7fd18b; }
+  .sheet .item { display:flex; align-items:center; gap:12px; }
+  .sheet .item .it { flex:1; }
+  .sheet .ii { width:28px; height:28px; border-radius:50%; flex:none; background:#888; box-shadow:inset -4px -4px 0 rgba(0,0,0,.25); }
+  .sheet .ii-potion { background:#b070e0; border-radius:8px 8px 12px 12px; } .sheet .ii-candy { background:#5aa0e8; }
+  .sheet .ii-fire { background:#f08030; } .sheet .ii-water { background:#6890f0; } .sheet .ii-thunder { background:#f8d030; }
+  .sheet .ii-leaf { background:#78c850; } .sheet .ii-moon { background:#7a7aa0; }
+  .sheet .care { display:flex; gap:12px; justify-content:center; margin:10px auto; }
+  .sheet .cslot { display:flex; flex-direction:column; gap:8px; width:140px; }
+  .sheet .cslot .mon { width:100%; }
+  .sheet .mon.empty { display:flex; align-items:center; justify-content:center; min-height:104px; border:1px dashed var(--ring);
+    border-radius:12px; color:var(--dim); font-size:13px; }
+  .sheet .badges { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; max-width:400px; margin:0 auto; }
+  .sheet .badge { margin:0; display:flex; flex-direction:column; align-items:center; text-align:center; gap:2px; opacity:.6; }
+  .sheet .badge.got { opacity:1; border-color:#f8d030; }
+  .sheet .badge .bd { width:34px; height:34px; border-radius:50%; background:#3a3f50; margin-bottom:4px;
+    clip-path:polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%); }
+  .sheet .badge.got .bd { background:var(--c); }
+  .sheet .badge .bar { width:100%; }
+
   #about { position:fixed; inset:0; background:rgba(8,9,12,.92); display:none; overflow:auto;
     padding: calc(env(safe-area-inset-top) + 24px) 22px 32px; font-size:14px; line-height:1.55; color:#c9cde0; }
   #about.open { display:block; }
@@ -80,7 +162,11 @@
   <nav id="nav">
     <button id="nav-dex" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Pokédex</span></button>
     <button id="nav-card" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="11" r="2.5"/><path d="M14 10h4M14 14h4M6 17c.8-1.6 2-2.4 3-2.4s2.2.8 3 2.4"/></svg><span>Fiche</span></button>
+    <button id="nav-team" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.6.2 4.4 1.9 5 4.8"/></svg><span>Équipe</span></button>
+    <button id="nav-pc" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><circle cx="12" cy="10" r="2.5"/><path d="M3 10h6.5M14.5 10H21"/></svg><span>PC</span></button>
+    <button id="nav-trade" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h14l-3.5-3.5M20 16H6l3.5 3.5"/></svg><span>Échanges</span></button>
     <button id="nav-walk" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="7.5" cy="8" rx="3" ry="4.5"/><ellipse cx="16.5" cy="14" rx="3" ry="4.5"/><path d="M6 15.5h3M15 21.5h3"/></svg><span>Balade</span></button>
+    <button id="nav-adv" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20l5-14 4 8 3-5 6 11z"/><path d="M15 4v5M15 4l4 1.5L15 7"/></svg><span>Aventure</span></button>
     <button id="nav-set" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>Réglages</span></button>
   </nav>
   <button id="info" type="button" aria-label="À propos">i</button>
@@ -90,6 +176,7 @@
     <p id="duel-how"></p>
     <canvas id="duel-qr" width="200" height="200"></canvas>
     <div id="duel-me"></div>
+    <div id="duel-team" class="sheet-in"></div>
     <div id="duel-code"></div>
     <div id="duel-rec"></div>
     <div id="duel-last"></div>
@@ -100,7 +187,7 @@
       <button id="duel-new" type="button">Nouvelle carte</button>
     </div>
     <video id="duel-video" playsinline muted hidden></video>
-    <div id="duel-pastebox" hidden><textarea id="duel-input" placeholder="TPD2-…"></textarea></div>
+    <div id="duel-pastebox" hidden><textarea id="duel-input" placeholder="TPD3-…"></textarea></div>
     <div id="duel-status"></div>
     <div class="row"><button id="duel-fight" type="button" disabled>COMBATTRE</button></div>
     <p id="duel-check"></p>
@@ -113,11 +200,93 @@
     <div class="row"><button id="duel-close" type="button">Fermer</button></div>
   </div>
 
+  <div id="options" class="sheet" role="dialog">
+    <h2 id="opt-title">Options</h2>
+    <div class="row"><span id="opt-vib-lbl" style="align-self:center">Vibrations</span><button id="opt-vib" type="button">On</button></div>
+    <h3 id="opt-save-h">Sauvegarde</h3>
+    <p class="how" id="opt-save-how"></p>
+    <div class="row"><button id="opt-export" type="button" class="blue">Exporter</button><button id="opt-import" type="button">Importer</button></div>
+    <div class="row"><button id="opt-send" type="button">Envoyer</button><button id="opt-paste" type="button">Coller</button></div>
+    <div id="opt-pastebox" hidden><textarea id="opt-input" placeholder="TPS1:…"></textarea></div>
+    <div id="opt-auto" hidden>
+      <h3 id="opt-auto-h">Sauvegarde automatique</h3>
+      <p class="how" id="opt-auto-how"></p>
+      <div class="small" id="opt-auto-st"></div>
+      <div class="row"><button id="opt-auto-pick" type="button" class="blue">Choisir un dossier</button><button id="opt-auto-now" type="button">Maintenant</button><button id="opt-auto-off" type="button">Désactiver</button></div>
+    </div>
+    <div id="opt-ns" hidden></div>
+    <div id="opt-hc">
+      <h3 id="opt-hc-h">Montre (Health Connect)</h3>
+      <p class="how" id="opt-hc-how"></p>
+      <div class="small" id="opt-hc-st"></div>
+      <div class="row"><button id="opt-hc-on" type="button" class="blue">Activer</button><button id="opt-hc-allow" type="button" hidden>Autoriser</button><button id="opt-hc-open" type="button" hidden>Ouvrir</button><button id="opt-hc-sync" type="button" hidden>Synchroniser</button></div>
+    </div>
+    <h3 id="opt-tr-h">Transfert</h3>
+    <p class="how" id="opt-tr-how"></p>
+    <div class="row"><button id="opt-show" type="button" class="blue">Afficher</button><button id="opt-scan" type="button">Scanner</button></div>
+    <canvas id="opt-qr" class="qr" hidden></canvas>
+    <div class="small" id="opt-frame"></div>
+    <video id="opt-video" playsinline muted hidden></video>
+    <div id="opt-status" class="status"></div>
+    <div class="row"><button id="opt-apply" type="button" class="main" hidden>Charger</button></div>
+    <div class="row"><button id="opt-undo" type="button" hidden>Annuler</button></div>
+    <div class="row"><button id="opt-close" type="button">Fermer</button></div>
+  </div>
+
+  <div id="pc" class="sheet" role="dialog">
+    <h2 id="pc-title">PC</h2>
+    <div class="row" id="pc-sorts"></div>
+    <div class="row"><input id="pc-q" type="search" autocomplete="off" spellcheck="false"><select id="pc-type"></select></div>
+    <div class="row"><button id="pc-multi" type="button">Sélection multiple</button></div>
+    <div id="pc-status" class="status"></div>
+    <div id="pc-detail"></div>
+    <div id="pc-multibar"></div>
+    <div class="grid" id="pc-grid"></div>
+    <div class="row"><button id="pc-close" type="button">Fermer</button></div>
+  </div>
+
+  <div id="trades" class="sheet" role="dialog">
+    <h2 id="tr-title">Échanges</h2>
+    <div id="tr-top"></div>
+    <div id="tr-pick"></div>
+    <div id="tr-hist"></div>
+    <div class="row"><button id="tr-close" type="button">Fermer</button></div>
+  </div>
+
+  <div id="adv" class="sheet" role="dialog">
+    <h2 id="adv-title">Aventure</h2>
+    <div class="row tabs" id="adv-tabs"></div>
+    <div id="adv-body"></div>
+    <div class="row"><button id="adv-close" type="button">Fermer</button></div>
+  </div>
+
+  <div id="trade" class="sheet" role="dialog">
+    <h2 id="trade-title">Échange</h2>
+    <p class="how" id="trade-step"></p>
+    <canvas id="trade-qr" class="qr"></canvas>
+    <div class="small" id="trade-code" style="word-break:break-all;user-select:all;-webkit-user-select:all;font-family:ui-monospace,monospace"></div>
+    <p id="trade-give" style="margin:10px 0 2px;color:#fff"></p>
+    <p id="trade-get" style="margin:2px 0;color:#7fd18b"></p>
+    <div class="row">
+      <button id="trade-scan" type="button" class="blue">Scanner</button>
+      <button id="trade-paste" type="button">Coller</button>
+      <button id="trade-share" type="button">Partager</button>
+    </div>
+    <video id="trade-video" playsinline muted hidden></video>
+    <div id="trade-pastebox" hidden><textarea id="trade-input" placeholder="TPT1- / TPK1-…"></textarea></div>
+    <div id="trade-status" class="status"></div>
+    <p class="how" id="trade-trust"></p>
+    <div class="row"><button id="trade-cancel" type="button">Annuler</button></div>
+    <div class="row"><button id="trade-close" type="button">Fermer</button></div>
+  </div>
+
   <div id="about" role="dialog">
     <h2>TamaPoke pour Android</h2>
     <p>Portage du tamagotchi TamaPoke (firmware v1.17 pour ESP32-S3) en application Android. Mêmes règles et mêmes chiffres que la carte : une heure réelle = un niveau, la créature continue de vieillir appli fermée (jusqu'à 2 semaines).</p>
     <h3>Gestes</h3>
     <p>Bouton verre : faire boire (jauge EAU) · Balade (ou la pastille des pas en haut) : podomètre — en marchant, une jauge se remplit et des POKEMON sauvages apparaissent (3 en attente max). Combat : touche l'écran quand l'anneau entre dans la cible pour un coup parfait. Victoire = capture dans le Pokédex, et tu peux garder son œuf pour la prochaine éclosion.</p>
+    <p>Équipe : garde jusqu'à 6 POKEMON (capturés ou éclos) et change de compagnon quand tu veux ; ceux de l'équipe sont en pension (temps figé). Incubateur : l'œuf d'un POKEMON capturé éclot en marchant (2 000, 5 000 ou 10 000 pas selon la rareté) et le bébé rejoint l'équipe.</p>
+    <p>Montre : OPTIONS → Montre (Health Connect, Android 14+) ajoute les pas de ta montre quand le téléphone n'était pas sur toi. Attaques : les vraies attaques de Rouge/Bleu (4 par POKEMON, choisies en combat) ; duel entre amis en 3 contre 3. Aventure : zone de la semaine et POKEMON de nuit, défis du jour, sac d'objets (pierres d'évolution, Super Bonbon…), pension (œufs) et 8 badges. PC : jusqu'à 240 POKEMON hors équipe (temps figé) ; après une capture, choisis « PC ». Échange (bouton Échanges, ou Équipe/PC → un POKEMON → ÉCHANGER) : chacun scanne l'offre de l'autre, puis sa confirmation. Kadabra, Machopeur, Gravalanch et Spectrum évoluent à l'arrivée, comme dans les jeux. Types : ceux de la 1re génération (Rouge/Bleu), avec les mêmes forces et faiblesses ; chaque POKEMON attaque avec son meilleur type.</p>
     <p>Duel entre amis (Balade → DUEL) : chacun scanne le QR de l'autre (ou colle le code reçu par message) ; le combat est calculé à partir des deux cartes, donc identique sur les deux téléphones, sans Bluetooth ni réseau. 5 duels récompensés par jour.</p>
     <p>Toucher l'œuf pour l'ouvrir · toucher la créature pour la caresser · glisser à gauche : Pokédex · glisser vers le haut : fiche (glisser à gauche/droite pour les 4 pages) · glisser vers le bas : heure, son, langue · appui long 3 s sur la créature : la relâcher · bouton retour : fermer l'écran en cours.</p>
     <h3>Crédits et licences</h3>
@@ -136,6 +305,13 @@
   <script src="lib/jsQR.js"></script>
   <script src="game.js"></script>
   <script src="duel.js"></script>
+  <script src="team.js"></script>
+  <script src="options.js"></script>
+  <script src="trade.js"></script>
+  <script src="pc.js"></script>
+  <script src="adventure.js"></script>
+  <script src="health.js"></script>
+  <script src="notifset.js"></script>
   <script>
     (function () {
       var about = document.getElementById('about');

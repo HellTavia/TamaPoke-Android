@@ -78,6 +78,13 @@
 .end method
 
 
+.method public runJs(Ljava/lang/String;)V
+    .registers 2
+    invoke-direct {p0, p1}, Lcom/flo/tamapoke/MainActivity;->js(Ljava/lang/String;)V
+    return-void
+.end method
+
+
 .method protected onPause()V
     .registers 3
     const-string v0, "window.tpPause&&tpPause()"
@@ -127,5 +134,93 @@
     invoke-virtual {v0}, Landroid/webkit/WebView;->destroy()V
     :skip
     invoke-super {p0}, Landroid/app/Activity;->onDestroy()V
+    return-void
+.end method
+
+
+# résultat du sélecteur de documents (sauvegarde : 43 = enregistrer, 44 = ouvrir)
+.method protected onActivityResult(IILandroid/content/Intent;)V
+    .registers 9
+    invoke-super {p0, p1, p2, p3}, Landroid/app/Activity;->onActivityResult(IILandroid/content/Intent;)V
+    const/16 v0, 0x2b
+    if-ne p1, v0, :open
+
+    const/4 v1, 0x0
+    const/4 v0, -0x1
+    if-ne p2, v0, :saved
+    if-eqz p3, :saved
+    invoke-virtual {p3}, Landroid/content/Intent;->getData()Landroid/net/Uri;
+    move-result-object v2
+    iget-object v3, p0, Lcom/flo/tamapoke/MainActivity;->bridge:Lcom/flo/tamapoke/Bridge;
+    invoke-virtual {v3}, Lcom/flo/tamapoke/Bridge;->takePending()Ljava/lang/String;
+    move-result-object v3
+    invoke-static {p0, v2, v3}, Lcom/flo/tamapoke/Files;->write(Landroid/content/Context;Landroid/net/Uri;Ljava/lang/String;)Z
+    move-result v1
+    :saved
+    if-eqz v1, :no
+    const-string v0, "window.tpFileSaved&&tpFileSaved(true)"
+    goto :call
+    :no
+    const-string v0, "window.tpFileSaved&&tpFileSaved(false)"
+    :call
+    invoke-direct {p0, v0}, Lcom/flo/tamapoke/MainActivity;->js(Ljava/lang/String;)V
+    return-void
+
+    :open
+    const/16 v0, 0x2d
+    if-ne p1, v0, :open2
+    const/4 v0, -0x1
+    if-ne p2, v0, :done
+    if-eqz p3, :done
+    invoke-virtual {p3}, Landroid/content/Intent;->getData()Landroid/net/Uri;
+    move-result-object v1
+    if-eqz v1, :done
+    :try_start_d
+    invoke-virtual {p0}, Landroid/app/Activity;->getContentResolver()Landroid/content/ContentResolver;
+    move-result-object v2
+    const/4 v3, 0x3
+    invoke-virtual {v2, v1, v3}, Landroid/content/ContentResolver;->takePersistableUriPermission(Landroid/net/Uri;I)V
+    :try_end_d
+    .catch Ljava/lang/Exception; {:try_start_d .. :try_end_d} :done
+    new-instance v2, Ljava/lang/StringBuilder;
+    invoke-direct {v2}, Ljava/lang/StringBuilder;-><init>()V
+    const-string v3, "window.tpDirPicked&&tpDirPicked("
+    invoke-virtual {v2, v3}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    invoke-virtual {v1}, Landroid/net/Uri;->toString()Ljava/lang/String;
+    move-result-object v1
+    invoke-static {v1}, Lorg/json/JSONObject;->quote(Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v1
+    invoke-virtual {v2, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    const-string v3, ")"
+    invoke-virtual {v2, v3}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    invoke-virtual {v2}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+    move-result-object v1
+    invoke-direct {p0, v1}, Lcom/flo/tamapoke/MainActivity;->js(Ljava/lang/String;)V
+    return-void
+
+    :open2
+    const/16 v0, 0x2c
+    if-ne p1, v0, :done
+    const/4 v0, -0x1
+    if-ne p2, v0, :done
+    if-eqz p3, :done
+    invoke-virtual {p3}, Landroid/content/Intent;->getData()Landroid/net/Uri;
+    move-result-object v1
+    invoke-static {p0, v1}, Lcom/flo/tamapoke/Files;->read(Landroid/content/Context;Landroid/net/Uri;)Ljava/lang/String;
+    move-result-object v1
+    if-eqz v1, :done
+    new-instance v2, Ljava/lang/StringBuilder;
+    invoke-direct {v2}, Ljava/lang/StringBuilder;-><init>()V
+    const-string v3, "window.tpFileLoaded&&tpFileLoaded("
+    invoke-virtual {v2, v3}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    invoke-static {v1}, Lorg/json/JSONObject;->quote(Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v1
+    invoke-virtual {v2, v1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    const-string v3, ")"
+    invoke-virtual {v2, v3}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    invoke-virtual {v2}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+    move-result-object v1
+    invoke-direct {p0, v1}, Lcom/flo/tamapoke/MainActivity;->js(Ljava/lang/String;)V
+    :done
     return-void
 .end method

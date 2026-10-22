@@ -1,14 +1,24 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.flo.tamapoke"
-    android:versionCode="6"
-    android:versionName="1.17-android.6">
+    android:versionCode="18"
+    android:versionName="1.17-android.18">
 
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- v13 : pas d'une montre via Health Connect (Android 14+) -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <queries>
+        <intent><action android:name="android.health.connect.action.MANAGE_HEALTH_PERMISSIONS" /></intent>
+        <intent><action android:name="android.health.connect.action.HEALTH_HOME_SETTINGS" /></intent>
+    </queries>
     <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -29,10 +39,29 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
         </activity>
+        <!-- Health Connect (Android 14+) : lien « confidentialité » de l'écran d'autorisation -->
+        <activity-alias
+            android:name="com.flo.tamapoke.ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity="com.flo.tamapoke.MainActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
         <service
             android:name="com.flo.tamapoke.PetService"
-            android:exported="false" />
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Virtual pet: step counter and reminders while the app is closed" />
+        </service>
         <receiver
             android:name="com.flo.tamapoke.AlarmReceiver"
             android:exported="true">
@@ -40,6 +69,17 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.flo.tamapoke.WidgetProvider"
+            android:label="TamaPoke"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/tp_widget_info" />
         </receiver>
     </application>
 </manifest>

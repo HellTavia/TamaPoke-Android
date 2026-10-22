@@ -25,6 +25,7 @@
 .field private volatile steps:F
 .field private volatile state:I
 .field private volatile pendingPerm:Ljava/lang/String;
+.field private volatile pendingText:Ljava/lang/String;
 
 
 .method public constructor <init>(Landroid/app/Activity;)V
@@ -404,6 +405,8 @@
     check-cast v0, Landroid/app/NotificationManager;
     const/16 v1, 0x32
     invoke-virtual {v0, v1}, Landroid/app/NotificationManager;->cancel(I)V
+    const/16 v1, 0x33
+    invoke-virtual {v0, v1}, Landroid/app/NotificationManager;->cancel(I)V
     const/16 v1, 0x64
     :loop
     const/16 v2, 0x70
@@ -482,6 +485,52 @@
     move-result-object v4
     const-string v2, "bg_wildX"
     invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putString(Ljava/lang/String;Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;
+
+    # incubateur : pas restants avant l'éclosion (-1 = rien à annoncer)
+    const-string v2, "incLeft"
+    const/4 v4, -0x1
+    invoke-virtual {v0, v2, v4}, Lorg/json/JSONObject;->optInt(Ljava/lang/String;I)I
+    move-result v4
+    const-string v2, "bg_incLeft"
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putInt(Ljava/lang/String;I)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "bg_incN"
+    const/4 v4, 0x0
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putBoolean(Ljava/lang/String;Z)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "incT"
+    invoke-virtual {v0, v2}, Lorg/json/JSONObject;->optString(Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v4
+    const-string v2, "bg_incT"
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putString(Ljava/lang/String;Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "incX"
+    invoke-virtual {v0, v2}, Lorg/json/JSONObject;->optString(Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v4
+    const-string v2, "bg_incX"
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putString(Ljava/lang/String;Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;
+
+    # v17 : heures calmes et rythme du widget
+    const-string v2, "qs"
+    const/4 v4, -0x1
+    invoke-virtual {v0, v2, v4}, Lorg/json/JSONObject;->optInt(Ljava/lang/String;I)I
+    move-result v4
+    const-string v2, "bg_qs"
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putInt(Ljava/lang/String;I)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "qe"
+    const/4 v4, -0x1
+    invoke-virtual {v0, v2, v4}, Lorg/json/JSONObject;->optInt(Ljava/lang/String;I)I
+    move-result v4
+    const-string v2, "bg_qe"
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putInt(Ljava/lang/String;I)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "qegg"
+    invoke-virtual {v0, v2}, Lorg/json/JSONObject;->optBoolean(Ljava/lang/String;)Z
+    move-result v4
+    const-string v2, "bg_qegg"
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putBoolean(Ljava/lang/String;Z)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "wgt"
+    const-wide/16 v4, 0x3a98
+    invoke-virtual {v0, v2, v4, v5}, Lorg/json/JSONObject;->optLong(Ljava/lang/String;J)J
+    move-result-wide v4
+    const-string v2, "bg_wgt"
+    invoke-interface {v1, v2, v4, v5}, Landroid/content/SharedPreferences$Editor;->putLong(Ljava/lang/String;J)Landroid/content/SharedPreferences$Editor;
     invoke-interface {v1}, Landroid/content/SharedPreferences$Editor;->apply()V
 
     if-eqz v3, :sched
@@ -528,7 +577,16 @@
     invoke-virtual {v6, v9}, Lorg/json/JSONObject;->optLong(Ljava/lang/String;)J
     move-result-wide v10
     const/4 v12, 0x0                 # RTC_WAKEUP
+    # v17 : « ex » = à la minute près ; sinon Android peut regrouper (économise la batterie)
+    const-string v9, "ex"
+    invoke-virtual {v6, v9}, Lorg/json/JSONObject;->optBoolean(Ljava/lang/String;)Z
+    move-result v13
+    if-eqz v13, :inexact
     invoke-virtual {v4, v12, v10, v11, v7}, Landroid/app/AlarmManager;->setExactAndAllowWhileIdle(IJLandroid/app/PendingIntent;)V
+    goto :scheduled
+    :inexact
+    invoke-virtual {v4, v12, v10, v11, v7}, Landroid/app/AlarmManager;->setAndAllowWhileIdle(IJLandroid/app/PendingIntent;)V
+    :scheduled
     add-int/lit8 v5, v5, 0x1
     goto :loop
 
@@ -570,4 +628,281 @@
     invoke-interface {v0, v1, v2}, Landroid/content/SharedPreferences;->getBoolean(Ljava/lang/String;Z)Z
     move-result v0
     return v0
+.end method
+
+
+# ------------------------------------------------------------------ vibrations
+.method public vibrate(I)V
+    .registers 6
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    :try_start_0
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    const-string v1, "vibrator"
+    invoke-virtual {v0, v1}, Landroid/app/Activity;->getSystemService(Ljava/lang/String;)Ljava/lang/Object;
+    move-result-object v0
+    check-cast v0, Landroid/os/Vibrator;
+    if-eqz v0, :done
+    int-to-long v1, p1
+    const/4 v3, -0x1                 # DEFAULT_AMPLITUDE
+    invoke-static {v1, v2, v3}, Landroid/os/VibrationEffect;->createOneShot(JI)Landroid/os/VibrationEffect;
+    move-result-object v1
+    invoke-virtual {v0, v1}, Landroid/os/Vibrator;->vibrate(Landroid/os/VibrationEffect;)V
+    :done
+    :try_end_0
+    .catch Ljava/lang/Exception; {:try_start_0 .. :try_end_0} :catch_0
+    return-void
+    :catch_0
+    return-void
+.end method
+
+
+# ------------------------------------------------------------------ widget
+.method public setWidget(Ljava/lang/String;Ljava/lang/String;)V
+    .registers 6
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->prefs:Landroid/content/SharedPreferences;
+    invoke-interface {v0}, Landroid/content/SharedPreferences;->edit()Landroid/content/SharedPreferences$Editor;
+    move-result-object v0
+    const-string v1, "w_json"
+    invoke-interface {v0, v1, p1}, Landroid/content/SharedPreferences$Editor;->putString(Ljava/lang/String;Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;
+    const-string v1, "w_img"
+    invoke-interface {v0, v1, p2}, Landroid/content/SharedPreferences$Editor;->putString(Ljava/lang/String;Ljava/lang/String;)Landroid/content/SharedPreferences$Editor;
+    invoke-interface {v0}, Landroid/content/SharedPreferences$Editor;->commit()Z
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-static {v0}, Lcom/flo/tamapoke/Widget;->render(Landroid/content/Context;)V
+    return-void
+.end method
+
+
+# ------------------------------------------------------------------ fichiers
+# enregistrer : le sélecteur de documents d'Android choisit l'emplacement ;
+# MainActivity.onActivityResult écrit le texte gardé ici (takePending)
+.method public saveFile(Ljava/lang/String;Ljava/lang/String;)V
+    .registers 7
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    iput-object p2, p0, Lcom/flo/tamapoke/Bridge;->pendingText:Ljava/lang/String;
+    new-instance v0, Landroid/content/Intent;
+    const-string v1, "android.intent.action.CREATE_DOCUMENT"
+    invoke-direct {v0, v1}, Landroid/content/Intent;-><init>(Ljava/lang/String;)V
+    const-string v1, "android.intent.category.OPENABLE"
+    invoke-virtual {v0, v1}, Landroid/content/Intent;->addCategory(Ljava/lang/String;)Landroid/content/Intent;
+    const-string v1, "text/plain"
+    invoke-virtual {v0, v1}, Landroid/content/Intent;->setType(Ljava/lang/String;)Landroid/content/Intent;
+    const-string v1, "android.intent.extra.TITLE"
+    invoke-virtual {v0, v1, p1}, Landroid/content/Intent;->putExtra(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;
+    new-instance v1, Lcom/flo/tamapoke/StartAct;
+    iget-object v2, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    const/16 v3, 0x2b
+    invoke-direct {v1, v2, v0, v3}, Lcom/flo/tamapoke/StartAct;-><init>(Landroid/app/Activity;Landroid/content/Intent;I)V
+    invoke-virtual {v2, v1}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    return-void
+.end method
+
+
+.method public openFile()V
+    .registers 6
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    new-instance v0, Landroid/content/Intent;
+    const-string v1, "android.intent.action.OPEN_DOCUMENT"
+    invoke-direct {v0, v1}, Landroid/content/Intent;-><init>(Ljava/lang/String;)V
+    const-string v1, "android.intent.category.OPENABLE"
+    invoke-virtual {v0, v1}, Landroid/content/Intent;->addCategory(Ljava/lang/String;)Landroid/content/Intent;
+    const-string v1, "*/*"
+    invoke-virtual {v0, v1}, Landroid/content/Intent;->setType(Ljava/lang/String;)Landroid/content/Intent;
+    new-instance v1, Lcom/flo/tamapoke/StartAct;
+    iget-object v2, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    const/16 v3, 0x2c
+    invoke-direct {v1, v2, v0, v3}, Lcom/flo/tamapoke/StartAct;-><init>(Landroid/app/Activity;Landroid/content/Intent;I)V
+    invoke-virtual {v2, v1}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    return-void
+.end method
+
+
+.method public takePending()Ljava/lang/String;
+    .registers 3
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->pendingText:Ljava/lang/String;
+    const/4 v1, 0x0
+    iput-object v1, p0, Lcom/flo/tamapoke/Bridge;->pendingText:Ljava/lang/String;
+    return-object v0
+.end method
+
+
+.method public pickDir()V
+    .registers 6
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    new-instance v0, Landroid/content/Intent;
+    const-string v1, "android.intent.action.OPEN_DOCUMENT_TREE"
+    invoke-direct {v0, v1}, Landroid/content/Intent;-><init>(Ljava/lang/String;)V
+    const/16 v1, 0xc3
+    invoke-virtual {v0, v1}, Landroid/content/Intent;->addFlags(I)Landroid/content/Intent;
+    new-instance v1, Lcom/flo/tamapoke/StartAct;
+    iget-object v2, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    const/16 v3, 0x2d
+    invoke-direct {v1, v2, v0, v3}, Lcom/flo/tamapoke/StartAct;-><init>(Landroid/app/Activity;Landroid/content/Intent;I)V
+    invoke-virtual {v2, v1}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    return-void
+.end method
+
+
+.method public writeInDir(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+    .registers 6
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-static {v0, p1, p2, p3}, Lcom/flo/tamapoke/Files;->writeInTree(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+    move-result-object v0
+    return-object v0
+.end method
+
+
+.method public deleteDoc(Ljava/lang/String;)Z
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-static {v0, p1}, Lcom/flo/tamapoke/Files;->deleteDoc(Landroid/content/Context;Ljava/lang/String;)Z
+    move-result v0
+    return v0
+.end method
+
+
+.method public dirOk(Ljava/lang/String;)Z
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-static {v0, p1}, Lcom/flo/tamapoke/Files;->treeOk(Landroid/content/Context;Ljava/lang/String;)Z
+    move-result v0
+    return v0
+.end method
+
+
+# ------------------------------------------------ Health Connect (v13, Android 14+)
+# hcState() : -1 indisponible (Android < 14), 0 permission à donner, 1 accordée
+.method public hcState()I
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x22
+    if-ge v0, v1, :ok
+    const/4 v0, -0x1
+    return v0
+    :ok
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    const-string v1, "android.permission.health.READ_STEPS"
+    invoke-virtual {v0, v1}, Landroid/app/Activity;->checkSelfPermission(Ljava/lang/String;)I
+    move-result v0
+    if-nez v0, :no
+    const/4 v0, 0x1
+    return v0
+    :no
+    const/4 v0, 0x0
+    return v0
+.end method
+
+
+.method public hcRequest()V
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x22
+    if-ge v0, v1, :go
+    return-void
+    :go
+    const-string v0, "android.permission.health.READ_STEPS"
+    iput-object v0, p0, Lcom/flo/tamapoke/Bridge;->pendingPerm:Ljava/lang/String;
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-virtual {v0, p0}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    return-void
+.end method
+
+
+# ouvre l'écran des autorisations de Health Connect pour TamaPoke (avec repli)
+.method public hcOpen()V
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    new-instance v1, Lcom/flo/tamapoke/HcOpen;
+    invoke-direct {v1, v0}, Lcom/flo/tamapoke/HcOpen;-><init>(Landroid/app/Activity;)V
+    invoke-virtual {v0, v1}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    return-void
+.end method
+
+
+# total des pas entre deux instants (ms, en texte) ; la réponse arrive par tpHc(tag, n)
+# renvoie "" si la demande est partie, sinon le texte de l'erreur
+.method public hcSteps(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+    .registers 11
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x22
+    if-lt v0, v1, :old
+    :try_start_0
+    invoke-static {p1}, Ljava/lang/Long;->parseLong(Ljava/lang/String;)J
+    move-result-wide v1
+    invoke-static {p2}, Ljava/lang/Long;->parseLong(Ljava/lang/String;)J
+    move-result-wide v3
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    check-cast v0, Lcom/flo/tamapoke/MainActivity;
+    move-object v5, p3
+    invoke-static/range {v0 .. v5}, Lcom/flo/tamapoke/Health;->steps(Lcom/flo/tamapoke/MainActivity;JJLjava/lang/String;)Ljava/lang/String;
+    move-result-object v0
+    return-object v0
+    :try_end_0
+    .catch Ljava/lang/Throwable; {:try_start_0 .. :try_end_0} :err
+    :err
+    move-exception v0
+    invoke-virtual {v0}, Ljava/lang/Object;->toString()Ljava/lang/String;
+    move-result-object v0
+    return-object v0
+    :old
+    const-string v0, "Android < 14"
+    return-object v0
+.end method
+
+
+# notifications (Android 13+ : permission à demander quand on cible l'API 33+)
+.method public notifState()I
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x21
+    if-lt v0, v1, :yes
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    const-string v1, "android.permission.POST_NOTIFICATIONS"
+    invoke-virtual {v0, v1}, Landroid/app/Activity;->checkSelfPermission(Ljava/lang/String;)I
+    move-result v0
+    if-eqz v0, :yes
+    const/4 v0, 0x0
+    return v0
+    :yes
+    const/4 v0, 0x1
+    return v0
+.end method
+
+
+.method public askNotif()V
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x21
+    if-ge v0, v1, :go
+    return-void
+    :go
+    const-string v0, "android.permission.POST_NOTIFICATIONS"
+    iput-object v0, p0, Lcom/flo/tamapoke/Bridge;->pendingPerm:Ljava/lang/String;
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-virtual {v0, p0}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    return-void
 .end method

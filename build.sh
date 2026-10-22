@@ -39,7 +39,7 @@ packageInfo:
   renameManifestPackage: null
 sdkInfo:
   minSdkVersion: '26'
-  targetSdkVersion: '29'
+  targetSdkVersion: '34'
 sharedLibrary: false
 sparseResources: false
 usesFramework:

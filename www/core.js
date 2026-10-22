@@ -14,7 +14,7 @@ const D = window.TP_DATA;
 // jeu se comporte exactement comme le firmware d'origine (test différentiel).
 let TP_EXT = true;
 const FW_VERSION = '1.17';
-const APP_VERSION = '1.17-android.6';
+const APP_VERSION = '1.17-android.18';
 
 // ===================================================================== utils
 const T0 = performance.now();
@@ -251,7 +251,7 @@ class Pet {
     this.water = 80;          // 0..100, comme les 4 autres besoins
     this.drinkUntil = 0;
     this.stepsTotal = 0;      // pas cumulés depuis l'installation
-    this.stepsToday = 0; this.stepsDay = 0; this.stepsBest = 0;
+    this.stepsToday = 0; this.stepsDay = 0; this.stepsBest = 0; this.stepHist = {};
     this.stepsToEnc = 600;    // pas restants avant la prochaine rencontre
     this.encSpan = 600;       // longueur de la jauge en cours (affichage)
     this.pendingEnc = 0;      // rencontres en attente (max 3)
@@ -259,6 +259,10 @@ class Pet {
     this.reservedEgg = 0; this.reservedShiny = false;  // œuf gardé après une capture
     this.battlesWon = 0; this.battlesLost = 0;
     this.dexCaught = new Array(19).fill(0);  // capturés en combat (sous-ensemble du Pokédex)
+    this.box = [];            // équipe : jusqu'à 6 Pokémon en pension (temps figé)
+    this.pc = [];             // PC : stockage des autres Pokémon (temps figé aussi)
+    this.uid = 0;             // identifiant du compagnon (suit l'individu entre équipe/PC/échanges)
+    this.incubator = null;    // { dex, shiny, need, left } : éclot en marchant
     // privé dans le C++
     this.lastTick = 0; this.eatUntil = 0; this.heartUntil = 0; this.evolveUntil = 0;
     this.eggTarget = 1; this.eggShiny = false; this.eggTaps = 0; this.mistakeCooldown = 0;
@@ -391,7 +395,7 @@ class Pet {
       return;
     }
 
-    if (this.ageMinutes % MINUTES_PER_LEVEL === 0) sfxPlay(SFX_LEVEL);
+    if (this.ageMinutes % MINUTES_PER_LEVEL === 0 && (!TP_EXT || this.ageMinutes / MINUTES_PER_LEVEL < LV_MAX)) sfxPlay(SFX_LEVEL);
 
     this.fullness = clamp100(this.fullness - 2);
     this.energy = clamp100(this.energy - 1);
@@ -493,6 +497,7 @@ class Pet {
   }
 
   today() { return this.lastSeenEpoch ? Math.floor(this.lastSeenEpoch / 86400) : 0; }
+  hourNow() { return this.lastSeenEpoch ? Math.floor((this.lastSeenEpoch % 86400) / 3600) : 12; }
 
   registerCare() {
     if (this.isEgg() || this.ceremony !== CER_NONE) return;
@@ -598,6 +603,7 @@ class Pet {
   }
 
   hatch() {
+    this.uid = newUid();
     this.speciesId = this.eggTarget;
     this.shiny = this.eggShiny;
     this.geneAtk = 90 + random(21);
@@ -620,7 +626,7 @@ class Pet {
     if (this.isEgg() || this.sleeping || this.ceremony !== CER_NONE) return false;
     const d = DEX_TBL[this.speciesId];
     if (d.evolvesTo === 0) return false;
-    return this.level() >= d.evolveLevel + this.careMistakes && this.lowestStat() >= 40;
+    return this.level() >= evoNeed(d.evolveLevel + this.careMistakes) && this.lowestStat() >= 40;
   }
 
   evolve() {
@@ -680,6 +686,10 @@ class Pet {
     this.stepsTotal += n;
     this.stepsToday += n;
     if (this.stepsToday > this.stepsBest) this.stepsBest = this.stepsToday;
+    if (this.stepsDay) {                                   // historique (v10) : 62 derniers jours
+      this.stepHist[this.stepsDay] = this.stepsToday;
+      for (const k of Object.keys(this.stepHist)) if (+k < this.stepsDay - 62) delete this.stepHist[k];
+    }
     let gained = 0;
     let left = n;
     while (left > 0) {
@@ -693,6 +703,10 @@ class Pet {
         this.stepsToEnc = this.pendingEnc >= 3 ? 0 : 400 + random(800);  // ~800 pas en moyenne
         if (this.stepsToEnc) this.encSpan = this.stepsToEnc;
       }
+    }
+    if (this.incubator) {
+      const inc = this.incubator;
+      inc.left = Math.max(0, inc.left - n);
     }
     // marcher entraîne : +1 VIT tous les 1000 pas, -1 de poids tous les 300
     if (!this.isEgg()) {
@@ -711,7 +725,7 @@ class Pet {
   canBattle() {
     return !this.isEgg() && !this.sleeping && this.ceremony === CER_NONE && this.pendingEnc > 0;
   }
-  hpMax() { return this.isEgg() ? 0 : battleHp(DEX_TBL[this.speciesId].bHp, this.level()) + Math.floor(this.bond / 10); }
+  hpMax() { return this.isEgg() ? 0 : Math.min(STAT_MAX, battleHp(DEX_TBL[this.speciesId].bHp, this.level()) + Math.floor(this.bond / 10)); }
   isCaught(dex) {
     return dex >= 1 && dex <= 151 && !!(this.dexCaught[(dex - 1) >> 3] & (1 << ((dex - 1) & 7)));
   }
@@ -737,15 +751,35 @@ class Pet {
       for (let d = 1; d <= 151; d++) if (DEX_TBL[d].rarity === R_COMUN) cand.push(d);
       tier = R_COMUN;
     }
+    // v11 : heure (certains POKEMON seulement la nuit ou le jour) et zone de la semaine
+    const night = isNightHour(this.hourNow());
+    const okNow = (d) => (night ? !DAY_ONLY.includes(d) : !NIGHT_ONLY.includes(d));
+    const timed = cand.filter(okNow);
+    if (timed.length) cand = timed;
+    else {  // aucune espèce de ce rang à cette heure : une espèce commune
+      cand = [];
+      for (let d = 1; d <= 151; d++) if (DEX_TBL[d].rarity === R_COMUN && okNow(d)) cand.push(d);
+      tier = R_COMUN;
+    }
+    if (night && random(100) < 35) {
+      const nc = cand.filter((d) => NIGHT_ONLY.includes(d));
+      if (nc.length) cand = nc;
+    } else if (random(100) < 60) {
+      const zb = ZONES[weekZone(this.today())].b;
+      const zc = cand.filter((d) => zb.includes(DEX_TBL[d].biome));
+      if (zc.length) cand = zc;
+    }
     const dex = cand[random(cand.length)];
     let wl = Math.max(1, lv - 3 + random(4));  // un peu plus faible que toi en moyenne
     if (tier === R_LEGENDARIO) wl += 3;
     if (wl > 100) wl = 100;
     const d = DEX_TBL[dex];
     const g = () => 85 + random(16);
+    const shiny = random(64) === 0;
+    const ga = g(), gd = g(), gs = g();
     return {
-      dex, lv: wl, shiny: random(64) === 0,
-      atk: calcStat(d.bAtk, g(), wl, 0), def: calcStat(d.bDef, g(), wl, 0), spe: calcStat(d.bSpe, g(), wl, 0),
+      dex, lv: wl, shiny, ga, gd, gs,
+      atk: calcStat(d.bAtk, ga, wl, 0), def: calcStat(d.bDef, gd, wl, 0), spe: calcStat(d.bSpe, gs, wl, 0),
       hp: battleHp(d.bHp, wl),
     };
   }
@@ -777,10 +811,159 @@ class Pet {
     if (result >= 0) this.registerCare();
     this.save();
   }
-  reserveEgg(wild) {
-    this.reservedEgg = baseFormOf(wild.dex);
-    this.reservedShiny = !!wild.shiny;
+  reserveEgg(wild) {  // garder son œuf : il part dans l'incubateur
+    return this.incubate(baseFormOf(wild.dex), !!wild.shiny);
+  }
+
+  // ------------------------------------------------ fork : équipe + incubateur
+  // Ce qui appartient au compagnon (et part avec lui dans l'équipe). Le reste
+  // (Pokédex, série, records, podomètre...) appartient au joueur.
+  snapshot() {
+    return {
+      v: 1, dex: this.speciesId, shiny: this.shiny, age: this.ageMinutes, nick: this.nick,
+      f: this.fullness, j: this.joy, e: this.energy, h: this.hygiene, wa: this.water, poop: this.poops,
+      w: this.weight, ga: this.geneAtk, gd: this.geneDef, gs: this.geneSpe,
+      ta: this.trAtk, td: this.trDef, ts: this.trSpe, bk: this.berryKnown, mist: this.careMistakes,
+      cool: this.mistakeCooldown, sl: this.sleeping, bond: this.bond, bt: this.bondToday, med: this.medals,
+      evdl: this.evoDeclinedLv, fdl: this.farDeclinedAge, nt: this.neglectTicks, gt: this.goodTicks,
+      uid: this.uid || newUid(), t: Date.now(),
+    };
+  }
+  restore(o) {
+    this.speciesId = o.dex; this.prevSpeciesId = -1; this.shiny = !!o.shiny; this.ageMinutes = o.age;
+    this.nick = o.nick || ''; this.fullness = o.f; this.joy = o.j; this.energy = o.e; this.hygiene = o.h;
+    this.water = o.wa === undefined ? 80 : o.wa; this.poops = o.poop || 0; this.weight = o.w || 0;
+    this.geneAtk = o.ga; this.geneDef = o.gd; this.geneSpe = o.gs;
+    this.trAtk = o.ta || 0; this.trDef = o.td || 0; this.trSpe = o.ts || 0; this.berryKnown = !!o.bk;
+    this.careMistakes = o.mist || 0; this.mistakeCooldown = o.cool || 0; this.sleeping = !!o.sl;
+    this.bond = o.bond || 0; this.bondToday = o.bt || 0; this.medals = o.med || 0; this.newMedal = 0;
+    this.evoDeclinedLv = o.evdl || 0; this.farDeclinedAge = o.fdl || 0;
+    this.neglectTicks = o.nt || 0; this.goodTicks = o.gt || 0;
+    this.eatUntil = this.heartUntil = this.evolveUntil = this.drinkUntil = 0;
+    this.eggTaps = 0;
+    this.uid = o.uid || newUid();
+  }
+  // un nouvel individu (capture ou éclosion à l'incubateur)
+  static freshIndividual(dex, shiny, lv, genes) {
+    const g = () => 90 + random(21);
+    return {
+      v: 1, dex, shiny: !!shiny, age: (Math.max(1, lv) - 1) * MINUTES_PER_LEVEL, nick: '',
+      f: 80, j: 80, e: 80, h: 100, wa: 80, poop: 0, w: 0,
+      ga: genes ? genes[0] : g(), gd: genes ? genes[1] : g(), gs: genes ? genes[2] : g(),
+      ta: 0, td: 0, ts: 0, bk: false, mist: 0, cool: 0, sl: false, bond: 0, bt: 0, med: 0,
+      evdl: 0, fdl: 0, nt: 0, gt: 0, uid: newUid(), t: Date.now(),
+    };
+  }
+  boxFull() { return this.box.length >= BOX_SIZE; }
+  pcFull() { return this.pc.length >= PC_SIZE; }
+  addToPC(ind) {
+    if (this.pcFull()) return false;
+    ind.t = Date.now();
+    this.pc.push(ind);
     this.save();
+    return true;
+  }
+  keepWildPC(wild) {
+    return this.addToPC(Pet.freshIndividual(wild.dex, wild.shiny, wild.lv, [wild.ga || 95, wild.gd || 95, wild.gs || 95]));
+  }
+  // où se trouve l'individu uid ? { list: 'box' | 'pc', i } ou null
+  findInd(uid) {
+    let i = this.box.findIndex((o) => o.uid === uid);
+    if (i >= 0) return { list: 'box', i };
+    i = this.pc.findIndex((o) => o.uid === uid);
+    return i >= 0 ? { list: 'pc', i } : null;
+  }
+  boxToPC(i) {
+    if (!this.box[i] || this.pcFull()) return false;
+    this.pc.push({ ...this.box.splice(i, 1)[0], t: Date.now() });
+    this.save();
+    return true;
+  }
+  pcToBox(i) {
+    if (!this.pc[i] || this.boxFull()) return false;
+    this.box.push(this.pc.splice(i, 1)[0]);
+    this.save();
+    return true;
+  }
+  releaseFromPC(i) {
+    if (!this.pc[i]) return;
+    this.pc.splice(i, 1);
+    this.save();
+  }
+  // prendre le Pokémon n°i du PC comme compagnon (l'actuel va au PC)
+  swapWithPC(i) {
+    if (this.ceremony !== CER_NONE || this.starterPick) return 'busy';
+    const o = this.pc[i];
+    if (!o) return 'none';
+    if (this.isEgg()) {
+      if (this.incubator) return 'incfull';
+      this.incubator = { dex: this.eggTarget, shiny: this.eggShiny, need: incubSteps(this.eggTarget), left: incubSteps(this.eggTarget) };
+      this.pc.splice(i, 1);
+      this.restore(o);
+    } else {
+      const mine = this.snapshot();
+      this.restore(o);
+      this.pc[i] = mine;
+    }
+    this.lastTick = millis();
+    this.checkMedals();
+    this.save();
+    return 'ok';
+  }
+  addToBox(ind) {
+    if (this.boxFull()) return false;
+    this.box.push(ind);
+    this.save();
+    return true;
+  }
+  keepWild(wild) {  // capture gardée : elle rejoint l'équipe telle qu'elle était
+    return this.addToBox(Pet.freshIndividual(wild.dex, wild.shiny, wild.lv, [wild.ga || 95, wild.gd || 95, wild.gs || 95]));
+  }
+  // prendre le Pokémon n°i de l'équipe comme compagnon (l'actuel prend sa place)
+  swapWithBox(i) {
+    if (this.ceremony !== CER_NONE || this.starterPick) return 'busy';
+    const o = this.box[i];
+    if (!o) return 'none';
+    if (this.isEgg()) {
+      // l'œuf en cours part à l'incubateur ; s'il est occupé, on ne peut pas
+      if (this.incubator) return 'incfull';
+      this.incubator = { dex: this.eggTarget, shiny: this.eggShiny, need: incubSteps(this.eggTarget), left: incubSteps(this.eggTarget) };
+      this.box.splice(i, 1);
+      this.restore(o);
+    } else {
+      const mine = this.snapshot();
+      this.restore(o);
+      this.box[i] = mine;
+    }
+    this.lastTick = millis();
+    this.checkMedals();
+    this.save();
+    return 'ok';
+  }
+  releaseFromBox(i) {
+    if (!this.box[i]) return;
+    this.box.splice(i, 1);
+    this.save();
+  }
+  incubate(dex, shiny) {
+    if (this.incubator) return false;
+    const need = incubSteps(dex);
+    this.incubator = { dex, shiny: !!shiny, need, left: need };
+    this.save();
+    return true;
+  }
+  tryHatchIncubator() {
+    const inc = this.incubator;
+    if (!inc || inc.left > 0 || (this.boxFull() && this.pcFull())) return null;
+    const ind = Pet.freshIndividual(inc.dex, inc.shiny, 1, null);
+    // équipe pleine : le bébé va au PC
+    if (this.boxFull()) { this.pc.push(ind); ind.where = 'pc'; } else this.box.push(ind);
+    this.incubator = null;
+    // éclos = élevé : il entre au Pokédex
+    this.dexReg[(inc.dex - 1) >> 3] |= (1 << ((inc.dex - 1) & 7));
+    if (inc.shiny) this.dexShinyReg[(inc.dex - 1) >> 3] |= (1 << ((inc.dex - 1) & 7));
+    this.save();
+    return ind;
   }
 
   feedCandy() {
@@ -897,7 +1080,8 @@ class Pet {
   }
   level() {
     const lv = 1 + Math.floor(this.ageMinutes / MINUTES_PER_LEVEL);
-    return lv > 999 ? 999 : lv;
+    const cap = lvCap();
+    return lv > cap ? cap : lv;
   }
   isRegistered(dex) {
     return dex >= 1 && dex <= 151 && !!(this.dexReg[(dex - 1) >> 3] & (1 << ((dex - 1) & 7)));
@@ -948,10 +1132,12 @@ class Pet {
     // ces trois-là n'étaient pas persistés sur la carte (un redémarrage les
     // remettait à zéro) ; ici l'appli est fermée bien plus souvent
     P('evodl', this.evoDeclinedLv); P('fardl', this.farDeclinedAge); P('bondt', this.bondToday);
-    P('wat', this.water); P('stT', this.stepsTotal); P('stD', this.stepsToday); P('stDay', this.stepsDay);
+    P('wat', this.water); P('stT', this.stepsTotal); P('stD', this.stepsToday); P('stDay', this.stepsDay); P('stH', this.stepHist);
     P('stBest', this.stepsBest); P('stEnc', this.stepsToEnc); P('stSpan', this.encSpan); P('stPend', this.pendingEnc);
     P('stAs', this.accSpe); P('stAw', this.accWgt); P('rEgg', this.reservedEgg); P('rShy', this.reservedShiny);
     P('bWon', this.battlesWon); P('bLost', this.battlesLost); P('dexc', this.dexCaught.slice());
+    P('box', this.box.map((o) => ({ ...o }))); P('inc', this.incubator ? { ...this.incubator } : null);
+    P('pc', this.pc.map((o) => ({ ...o }))); P('uid', this.uid);
     prefs.flush();
   }
 
@@ -979,23 +1165,99 @@ class Pet {
     this.nick = G('nick', '');
     this.evoDeclinedLv = G('evodl', 0); this.farDeclinedAge = G('fardl', 0); this.bondToday = G('bondt', 0);
     this.water = G('wat', 80); this.stepsTotal = G('stT', 0); this.stepsToday = G('stD', 0);
+    const sth = G('stH', null); this.stepHist = sth && typeof sth === 'object' ? { ...sth } : {};
     this.stepsDay = G('stDay', 0); this.stepsBest = G('stBest', 0); this.stepsToEnc = G('stEnc', 600); this.encSpan = G('stSpan', 600);
+    if (this.stepsDay && this.stepsToday && !this.stepHist[this.stepsDay]) this.stepHist[this.stepsDay] = this.stepsToday;
     this.pendingEnc = G('stPend', 0); this.accSpe = G('stAs', 0); this.accWgt = G('stAw', 0);
     this.reservedEgg = G('rEgg', 0); this.reservedShiny = G('rShy', false);
     this.battlesWon = G('bWon', 0); this.battlesLost = G('bLost', 0);
     const dc = G('dexc', null); if (Array.isArray(dc) && dc.length === 19) this.dexCaught = dc.slice();
+    const bx = G('box', null); this.box = Array.isArray(bx) ? bx.slice(0, BOX_SIZE) : [];
+    const pcs = G('pc', null); this.pc = Array.isArray(pcs) ? pcs.slice(0, PC_SIZE) : [];
+    this.uid = G('uid', 0) || newUid();
+    for (const o of this.box.concat(this.pc)) if (!o.uid) o.uid = newUid();
+    this.incubator = G('inc', null);
+    // version 2-6 : l'« œuf gardé » attendait le prochain œuf ; il passe à l'incubateur
+    if (TP_EXT && this.reservedEgg > 0 && !this.incubator) {
+      const need = incubSteps(this.reservedEgg);
+      this.incubator = { dex: this.reservedEgg, shiny: this.reservedShiny, need, left: need };
+      this.reservedEgg = 0; this.reservedShiny = false;
+    }
     if (this.speciesId >= 1) this.registerSpecies(this.speciesId);
   }
 }
-function calcStat(base, gene, lvl, tr) { return idiv(base * gene, 100) + lvl + tr; }
+function calcStat(base, gene, lvl, tr) {
+  const v = idiv(base * gene, 100) + lvl + tr;
+  return TP_EXT && v > STAT_MAX ? STAT_MAX : v;  // fork : stats plafonnées à 255
+}
+// fork : niveau max 100 (le firmware va jusqu'à 999), stats max 255
+const LV_MAX = 100, STAT_MAX = 255;
+function lvCap() { return TP_EXT ? LV_MAX : 999; }
+function evoNeed(n) { return TP_EXT ? Math.min(LV_MAX, n) : n; }
+function lvOfAge(age) { return Math.min(lvCap(), 1 + Math.floor(age / MINUTES_PER_LEVEL)); }
+
+// ---- fork : équipe / incubateur
+const BOX_SIZE = 6;
+const PC_SIZE = 240;
+function newUid() { return 1 + Math.floor(Math.random() * 2147483000); }
+// pas pour faire éclore : 2 km pour un commun, 5 km rare, 10 km légendaire (façon Pokémon GO)
+// ---- fork v11 : zones de la semaine et POKEMON de jour / de nuit
+// biomes du firmware : 0 prairie, 1 plage, 2 forêt, 3 volcan, 4 montagne, 5 neige
+const ZONES = [{ id: 'prairie', b: [0] }, { id: 'plage', b: [1] }, { id: 'foret', b: [2] }, { id: 'volcan', b: [3] }, { id: 'montagne', b: [4, 5] }];
+// semaine du lundi au dimanche (le jour 0 de l'époque Unix est un jeudi)
+function weekZone(day) { return Math.floor((day + 3) / 7) % ZONES.length; }
+function isNightHour(h) { return h >= 21 || h < 6; }
+const NIGHT_ONLY = [35, 36, 41, 42, 48, 49, 92, 93, 94, 96, 97];
+const DAY_ONLY = [10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 83, 84, 85, 123, 127];
+
+function incubSteps(dex) {
+  const r = D.DEX[dex] ? D.DEX[dex].rarity : 1;
+  return r === 3 ? 10000 : r === 2 ? 5000 : 2000;
+}
 
 // ---- fork : combat
-function battleHp(bHp, lv) { return 30 + Math.floor(bHp * 0.6) + lv * 2; }
+function battleHp(bHp, lv) { return Math.min(STAT_MAX, 30 + Math.floor(bHp * 0.6) + Math.min(lv, LV_MAX) * 2); }
 // dégâts : ~20 à forces égales (3 à 6 coups par combat), +50 % sur un coup au bon moment
-function battleDamage(atk, def, crit) {
-  let d = Math.floor(atk * 22 / (def + 5) * (85 + random(16)) / 100);
+function battleDamage(atk, def, crit, mult = 1) {
+  let d = Math.floor(atk * 22 / (def + 5) * (85 + random(16)) / 100 * mult);
   if (crit) d = Math.floor(d * 1.5);
   return Math.max(2, d);
+}
+
+// ---- fork : types de la 1re génération (Rouge/Bleu), table d'efficacité de
+// PokeAPI, avec le bug Spectre -> Psy corrigé (x2 comme prévu, au lieu de x0).
+const TYPE_DATA = D.TYPES || { types: ['normal'], mon: {}, chart: {}, names: {} };
+const TYPE_COLORS = {
+  normal: C565(0xa8, 0xa8, 0x78), fighting: C565(0xc0, 0x30, 0x28), flying: C565(0xa8, 0x90, 0xf0),
+  poison: C565(0xa0, 0x40, 0xa0), ground: C565(0xe0, 0xc0, 0x68), rock: C565(0xb8, 0xa0, 0x38),
+  bug: C565(0xa8, 0xb8, 0x20), ghost: C565(0x70, 0x58, 0x98), fire: C565(0xf0, 0x80, 0x30),
+  water: C565(0x68, 0x90, 0xf0), grass: C565(0x78, 0xc8, 0x50), electric: C565(0xf8, 0xd0, 0x30),
+  psychic: C565(0xf8, 0x58, 0x88), ice: C565(0x98, 0xd8, 0xd8), dragon: C565(0x70, 0x38, 0xf8),
+};
+function monTypes(dex) { return TYPE_DATA.mon[dex] || ['normal']; }
+function typeName(t) {
+  const i = TYPE_DATA.types.indexOf(t);
+  const arr = TYPE_DATA.names[LANG_CODES[gLang]] || TYPE_DATA.names.EN || [];
+  const n = (i >= 0 && arr[i]) ? arr[i] : t;
+  return gLang >= 6 ? n : toCp437(n.toUpperCase());
+}
+// multiplicateur d'une attaque de type t sur l'espèce defDex (types doubles multipliés)
+function typeEff(t, defDex) {
+  let m = 1;
+  const row = TYPE_DATA.chart[t] || {};
+  for (const d of monTypes(defDex)) if (row[d] !== undefined) m *= row[d];
+  return m;
+}
+// le Pokémon attaque avec son meilleur type ; si aucun ne touche (immunité,
+// ex. Normal contre Spectre), il utilise Lutte : sans type, mais faible (x0,5)
+function bestAttack(atkDex, defDex) {
+  let best = null;
+  for (const t of monTypes(atkDex)) {
+    const m = typeEff(t, defDex);
+    if (!best || m > best.mult) best = { type: t, mult: m, struggle: false };
+  }
+  if (!best || best.mult === 0) return { type: null, mult: 0.5, struggle: true };
+  return best;
 }
 // forme précédente de chaque espèce (Évoli : 134-136 -> 133)
 const PREV_OF = (() => {
@@ -1009,6 +1271,99 @@ function baseFormOf(dex) {
   for (let g = 0; g < 4 && PREV_OF[d]; g++) d = PREV_OF[d];
   return d;
 }
+// ---- fork v12 : vraies attaques de Rouge/Bleu (PokeAPI, tools/gen1_moves.py)
+// Chaque POKEMON connaît les 4 dernières attaques apprises à son niveau.
+// Gardé : attaques offensives (type, puissance, précision d'origine), attaques
+// qui changent les stats (étages -6..+6 comme dans les jeux), soins. Laissé de
+// côté : statuts (sommeil, paralysie…), PP, effets secondaires.
+const MOVE_DATA = D.MOVES || { moves: {}, learn: {} };
+const STRUGGLE = { t: null, p: 50, a: 0, n: ['Combate', 'Struggle', 'Lutte', 'Verzweifler', 'Scontro', 'Luta', 'わるあがき', '발버둥'] };
+function moveRec(id) { return id ? (MOVE_DATA.moves[id] || STRUGGLE) : STRUGGLE; }
+function moveNameU(id) { return moveRec(id).n[gLang] || moveRec(id).n[1]; }
+function moveName(id) { const n = moveNameU(id); return gLang >= 6 ? n : toCp437(n.toUpperCase()); }
+function knownMoves(dex, lv) {
+  const ls = MOVE_DATA.learn[dex] || [];
+  const seq = [];
+  for (const [l, m] of ls) {
+    if (l > lv) break;
+    const k = seq.indexOf(m);
+    if (k >= 0) seq.splice(k, 1);
+    seq.push(m);
+  }
+  let out = seq.slice(-4);
+  // garder au moins une attaque qui fait des dégâts si l'espèce en a appris une
+  if (!out.some((m) => moveRec(m).p > 0)) {
+    const dmg = seq.filter((m) => moveRec(m).p > 0);
+    if (dmg.length) out = [dmg[dmg.length - 1]].concat(out.slice(-3));
+  }
+  return out.length && out.some((m) => moveRec(m).p > 0) ? out : out.concat([0]).slice(-4);
+}
+const stageMul = (s) => (s >= 0 ? (2 + s) / 2 : 2 / (2 - s));
+const accStageMul = (s) => (s >= 0 ? (3 + s) / 3 : 3 / (3 - s));
+function newStages() { return { atk: 0, def: 0, spe: 0, acc: 0, eva: 0 }; }
+// att / def : { atk, def, hp, max, dex, st } ; R(n) -> entier [0, n)
+// renvoie l'événement : { m, dmg, mult, miss, crit, fx: [[cible, stat, delta]], heal }
+function useMove(att, def, mid, crit, R) {
+  const mv = moveRec(mid);
+  const ev = { m: mid, dmg: 0, mult: 1, miss: false, crit: false, fx: [], heal: 0 };
+  const selfOnly = mv.p === 0 && (mv.h || (mv.e && mv.e.self));
+  if (!selfOnly && mv.a > 0) {
+    const chance = Math.min(100, mv.a * accStageMul(Math.max(-6, Math.min(6, att.st.acc - def.st.eva))));
+    if (R(100) >= chance) { ev.miss = true; return ev; }
+  } else if (!selfOnly) R(100);  // garde le même nombre de tirages
+  if (mv.p > 0) {
+    ev.mult = mv.t ? typeEff(mv.t, def.dex) : 1;
+    const roll = 85 + R(16);
+    if (ev.mult === 0) return ev;
+    const stab = mv.t && monTypes(att.dex).includes(mv.t) ? 1.2 : 1;
+    const A = att.atk * stageMul(att.st.atk), Dd = def.def * stageMul(def.st.def);
+    let d = Math.floor(A * 22 / (Dd + 5) * roll / 100 * (mv.p + 60) / 110 * ev.mult * stab);
+    if (crit) { d = Math.floor(d * 1.5); ev.crit = true; }
+    ev.dmg = Math.max(2, d);
+    def.hp = Math.max(0, def.hp - ev.dmg);
+  }
+  if (mv.e) {
+    const tgt = mv.e.self ? att : def;
+    for (const k of ['atk', 'def', 'spe', 'acc', 'eva']) {
+      if (!mv.e[k]) continue;
+      const before = tgt.st[k];
+      tgt.st[k] = Math.max(-6, Math.min(6, before + mv.e[k]));
+      ev.fx.push([mv.e.self ? 'att' : 'def', k, tgt.st[k] - before]);
+    }
+  }
+  if (mv.h) {
+    const before = att.hp;
+    att.hp = Math.min(att.max, att.hp + Math.floor(att.max * mv.h / 100));
+    ev.heal = att.hp - before;
+  }
+  return ev;
+}
+// choix de l'adversaire : la meilleure attaque le plus souvent, parfois une autre
+function aiMove(att, def, moves, R) {
+  const score = (m) => {
+    const mv = moveRec(m);
+    if (mv.p > 0) {
+      const mult = mv.t ? typeEff(mv.t, def.dex) : 1;
+      const stab = mv.t && monTypes(att.dex).includes(mv.t) ? 1.2 : 1;
+      return (mv.p + 60) * mult * stab * (mv.a ? mv.a / 100 : 1);
+    }
+    if (mv.h) return att.hp * 2 < att.max ? 140 : 0;
+    if (mv.e) {
+      const tgt = mv.e.self ? att.st : def.st;
+      const k = Object.keys(mv.e).find((x) => x !== 'self');
+      const room = mv.e[k] > 0 ? tgt[k] < 2 : tgt[k] > -2;
+      return room ? 45 : 0;
+    }
+    return 0;
+  };
+  const sc = moves.map(score);
+  let best = 0;
+  sc.forEach((v, i) => { if (v > sc[best]) best = i; });
+  if (R(100) < 70 || moves.length === 1) return moves[best];
+  const ok = moves.filter((m, i) => sc[i] > 0);
+  return ok.length ? ok[R(ok.length)] : moves[best];
+}
+
 // niveau auquel on peut croiser une forme évoluée (celui de sa forme précédente)
 function evoLevelOf(dex) {
   const p = PREV_OF[dex];
@@ -1021,11 +1376,14 @@ const CP437 = { 'é': 0x82, 'è': 0x8A, 'ê': 0x88, 'ë': 0x89, 'à': 0x85, 'â'
   'ù': 0x97, 'û': 0x96, 'ü': 0x81, 'ô': 0x93, 'ö': 0x94, 'î': 0x8C, 'ï': 0x8B, 'ñ': 0xA4, 'á': 0xA0,
   'í': 0xA1, 'ó': 0xA2, 'ú': 0xA3, 'É': 0x90, 'Ç': 0x80, 'Ä': 0x8E, 'Ö': 0x99, 'Ü': 0x9A, 'Ñ': 0xA5, '¡': 0xAD,
   '¿': 0xA8, 'ã': 0x61, 'õ': 0x6F, 'ì': 0x8D, 'ò': 0x95, 'ß': 0xE1 };
+// caractères absents de la police bitmap : équivalent texte
+const CP437_TEXT = { '…': '...', '’': "'", 'œ': 'oe', 'Œ': 'OE', '«': '\u00ae', '»': '\u00af', '★': '*', '·': '-', '♥': '\u0003' };
 function toCp437(s) {
   let o = '';
   for (const ch of s) {
     if (ch.charCodeAt(0) < 128) o += ch;
     else if (CP437[ch]) o += String.fromCharCode(CP437[ch]);
+    else if (CP437_TEXT[ch]) o += CP437_TEXT[ch];
     else o += ch.normalize('NFD')[0];  // majuscule accentuée absente de CP437 : lettre nue
   }
   return o;
@@ -1057,6 +1415,24 @@ const XSTR_SRC = {
   X_NO_SENSOR: ['Sin podómetro', 'No step sensor', 'Pas de podomètre', 'Kein Schrittzähler', 'Nessun contapassi', 'Sem pedômetro', 'ほすうけい なし', '만보기 없음'],
   X_ALLOW: ['Toca: activar pasos', 'Tap: allow steps', 'Touche: autoriser', 'Tippen: erlauben', 'Tocca: consenti', 'Toque: permitir', 'タッチで きょか', '터치: 허용'],
   X_WALK_HINT: ['¡Camina para encontrar Pokémon!', 'Walk to meet wild Pokémon!', 'Marche pour trouver des POKEMON', 'Lauf, um Pokémon zu finden!', 'Cammina per trovare Pokémon!', 'Ande para achar Pokémon!', 'あるいて ポケモンを さがそう', '걸어서 포켓몬을 찾자!'],
+  X_SUPER: ['¡Es súper eficaz!', "It's super effective!", "C'est super efficace !", 'Sehr effektiv!', 'È superefficace!', 'É super efetivo!', 'こうかは ばつぐんだ！', '효과가 굉장했다!'],
+  X_NOTVERY: ['No es muy eficaz…', "It's not very effective…", "Ce n'est pas très efficace…", 'Nicht sehr effektiv…', 'Non è molto efficace…', 'Não é muito efetivo…', 'こうかは いまひとつ…', '효과가 별로인 듯하다…'],
+  X_USES: ['¡%s usa %s!', '%s used %s!', '%s utilise %s !', '%s setzt %s ein!', '%s usa %s!', '%s usou %s!', '%sの %s！', '%s의 %s!'],
+  X_MISS: ['¡%s falla!', '%s missed!', '%s rate son coup !', '%s verfehlt!', '%s manca!', '%s errou!', '%sの こうげきは はずれた', '%s의 공격이 빗나갔다'],
+  X_NOEFF: ['No afecta a %s…', "It doesn't affect %s…", 'Ça n\'affecte pas %s…', '%s ist nicht betroffen…', 'Non ha effetto su %s…', 'Não afeta %s…', '%sには こうかが ない', '%s에게는 효과가 없다'],
+  X_UP: ['%s: ¡sube %s!', "%s's %s rose!", '%s : %s monte !', '%s: %s steigt!', '%s: sale %s!', '%s: %s subiu!', '%sの %sが あがった', '%s의 %s 상승!'],
+  X_DOWN: ['%s: ¡baja %s!', "%s's %s fell!", '%s : %s baisse !', '%s: %s sinkt!', '%s: cala %s!', '%s: %s caiu!', '%sの %sが さがった', '%s의 %s 하락!'],
+  X_NOCHG: ['¡No pasa nada!', 'Nothing happened!', 'Rien ne se passe !', 'Nichts passiert!', 'Non succede nulla!', 'Nada aconteceu!', 'なにも おこらない', '아무 일도 없다'],
+  X_HEAL: ['¡%s recupera PS!', '%s regained HP!', '%s récupère des PV !', '%s heilt KP!', '%s recupera PS!', '%s recuperou HP!', '%sは たいりょくを かいふく', '%s의 HP 회복!'],
+  X_CHOOSE: ['¿Qué hará %s?', 'What will %s do?', 'Que doit faire %s ?', 'Was soll %s tun?', 'Cosa farà %s?', 'O que %s fará?', '%sは どうする？', '%s은(는) 무엇을 할까?'],
+  X_SENDS: ['¡Adelante, %s!', 'Go, %s!', 'En avant, %s !', 'Los, %s!', 'Vai, %s!', 'Vai, %s!', 'ゆけっ %s！', '가라, %s!'],
+  X_FAINT: ['¡%s se debilitó!', '%s fainted!', '%s est K.O. !', '%s ist besiegt!', '%s è esausto!', '%s desmaiou!', '%sは たおれた', '%s 쓰러졌다!'],
+  ST_atk: ['el ataque', 'Attack', "l'attaque", 'Angriff', "l'attacco", 'o ataque', 'こうげき', '공격'],
+  ST_def: ['la defensa', 'Defense', 'la défense', 'Verteidigung', 'la difesa', 'a defesa', 'ぼうぎょ', '방어'],
+  ST_spe: ['la velocidad', 'Speed', 'la vitesse', 'Initiative', 'la velocità', 'a velocidade', 'すばやさ', '스피드'],
+  ST_acc: ['la precisión', 'accuracy', 'la précision', 'Genauigkeit', 'la precisione', 'a precisão', 'めいちゅう', '명중률'],
+  ST_eva: ['la evasión', 'evasiveness', "l'esquive", 'Fluchtwert', "l'elusione", 'a evasão', 'かいひ', '회피율'],
+  X_STRUGGLE: ['¡%s usa Combate!', '%s used Struggle!', '%s utilise Lutte !', '%s setzt Verzweifler ein!', '%s usa Scontro!', '%s usou Luta!', '%sの わるあがき！', '%s의 발버둥!'],
   X_WINS: ['Victorias: %u', 'Wins: %u', 'Victoires: %u', 'Siege: %u', 'Vittorie: %u', 'Vitórias: %u', 'しょうり %u', '승리 %u'],
 };
 const XSTR = {};

@@ -188,6 +188,44 @@ const thumbs = {
   },
 };
 
+// fork : miniature shiny = 1re image de l'animation « repos » du sprite shiny,
+// recadrée (thumbs.bin n'a que les couleurs normales). Chargée à la demande.
+function cropCanvas(src) {
+  let x0 = src.width, y0 = src.height, x1 = -1, y1 = -1;
+  try {
+    const px = src.getContext('2d').getImageData(0, 0, src.width, src.height).data;
+    for (let y = 0; y < src.height; y++) for (let x = 0; x < src.width; x++) {
+      if (px[(y * src.width + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+  } catch (e) { return src; }
+  if (x1 < 0) return src;
+  const cv = document.createElement('canvas');
+  cv.width = x1 - x0 + 1; cv.height = y1 - y0 + 1;
+  cv.getContext('2d').drawImage(src, x0, y0, cv.width, cv.height, 0, 0, cv.width, cv.height);
+  return cv;
+}
+const shinyThumbs = {
+  cache: new Map(), pending: new Set(),
+  get(dex) {
+    if (this.cache.has(dex)) return this.cache.get(dex);
+    if (!this.pending.has(dex) && dex >= 1 && dex <= DEX_COUNT) {
+      this.pending.add(dex);
+      fetchPmd(`mons/ps${pad3(dex)}.bin`).then((d) => {
+        let cv = null;
+        if (d) {
+          const a = d.acts[PMD_IDLE].frames ? d.acts[PMD_IDLE] : d.acts.find((x) => x.frames);
+          if (a) cv = cropCanvas(indexedToCanvas(d.blob, a.off, a.w, a.h, d.pal, false));
+        }
+        this.cache.set(dex, cv);
+        this.pending.delete(dex);
+        galleryDirty = true;
+        try { window.dispatchEvent(new CustomEvent('tp-shiny', { detail: dex })); } catch (e) { /* rien */ }
+      });
+    }
+    return null;
+  },
+};
+
 // ====================================================================== gfx
 // Émule l'API Arduino_GFX sur un canvas : on dessine en coordonnées 466x466
 // et le canvas est à la résolution réelle de l'écran (net à toute taille).
@@ -530,13 +568,18 @@ function loop() {
 
   pollHold();
   ensureMon();
-  if (TP_EXT && now - lastStepPoll > 2000) { lastStepPoll = now; pollSteps(); }
+  if (TP_EXT && now - lastStepPoll > 2000) {
+    lastStepPoll = now;
+    pollSteps();
+    if (pet.incubator && pet.incubator.left === 0) checkIncubator();
+  }
 
   // sur téléphone l'écriture est instantanée : on vide le guardado périodique tout de suite
   if (pet.savePending()) pet.flushSave();
 
   if (now - lastClock > 30000) {
     lastClock = now;
+    if (TP_EXT && Math.floor(now / 30000) % 2 === 0) sendWidget();
     const e = rtcEpoch();
     if (e) pet.lastSeenEpoch = e;
   }
@@ -637,7 +680,7 @@ function onPointerUp(ev) {
 // appui long sans bouger sur la créature -> « Relâcher ? »
 function pollHold() {
   if (!pressed || sackOpen || !tStart) return;
-  if (!holdFired && !swallowGesture && !galleryOpen && !cardOpen && !kbOpen && !clockOpen && !pedOpen && !battleOpen &&
+  if (!holdFired && !swallowGesture && !galleryOpen && !cardOpen && !kbOpen && !clockOpen && !pedOpen && !battleOpen && !teamOpen &&
       millis() - tStart > 3000 && Math.abs(tXl - tX0) < 30 && Math.abs(tYl - tY0) < 30 &&
       inPetZone(tX0, tY0) && !pet.isEgg() && !confirmUntil && !pet.ceremony && !gameOpen) {
     confirmUntil = millis() + 10000;
@@ -648,6 +691,7 @@ function pollHold() {
 function onSwipeV(dir) {
   if (pet.awaitingStarter()) return;
   if (battleOpen) return;
+  if (teamOpen) { teamOpen = false; return; }
   if (pedOpen) { pedOpen = false; return; }
   if (gameOpen || galleryOpen || kbOpen || sackOpen || pet.ceremony) return;
   if (clockOpen) { clockOpen = false; return; }
@@ -666,11 +710,13 @@ function onSwipeV(dir) {
 function onSwipe(dir) {
   if (pet.awaitingStarter()) return;
   if (battleOpen) return;
+  if (teamOpen) { teamOpen = false; return; }
   if (pedOpen) { pedOpen = false; return; }
   if (gameOpen || kbOpen || clockOpen) return;
   if (cardOpen) {
     const p = cardPage + (dir > 0 ? -1 : 1);
-    cardPage = p < 0 ? 0 : (p > 3 ? 3 : p);
+    const last = TP_EXT ? 4 : 3;
+    cardPage = p < 0 ? 0 : (p > last ? last : p);
     return;
   }
   if (!galleryOpen) {
@@ -715,6 +761,7 @@ function onTap(x, y) {
   }
   if (galleryOpen) { galleryTap(x, y); return; }
   if (battleOpen) { battleTap(x, y); return; }
+  if (teamOpen) { teamTap(x, y); return; }
   if (pedOpen) { pedTap(x, y); return; }
   if (kbOpen) { keyboardTap(x, y); return; }
   if (clockOpen) { clockTap(x, y); return; }
@@ -943,6 +990,7 @@ function render() {
   if (gameOpen) { renderGame(); return; }
   if (sackOpen) { renderSack(); return; }
   if (battleOpen) { renderBattle(); return; }
+  if (teamOpen) { renderTeam(); return; }
   if (pedOpen) { renderPed(); return; }
   if (kbOpen) { renderKeyboard(); return; }
   if (clockOpen) { renderClock(); return; }
@@ -1380,10 +1428,20 @@ function renderClock() {
   setCur(CX - 18, 352);
   printT('OK');
 
-  gfx.setTextColor(UI_TRACK);
-  setSize(2);
-  setCur(centerX(T(S_CLOCK_CANCEL), 2), 410);
-  printT(T(S_CLOCK_CANCEL));
+  if (TP_EXT) {
+    // fork : vibrations, sauvegarde, transfert
+    const ol = ['OPCIONES', 'OPTIONS', 'OPTIONS', 'OPTIONEN', 'OPZIONI', 'OPCOES', 'オプション', '옵션'][gLang] + ' >';
+    gfx.fillRoundRect(143, 396, 180, 30, 10, 0x4C98);
+    gfx.setTextColor(UI_WHITE);
+    setSize(2);
+    setCur(143 + idiv(180 - textW(ol, 2), 2), 404);
+    printT(ol);
+  } else {
+    gfx.setTextColor(UI_TRACK);
+    setSize(2);
+    setCur(centerX(T(S_CLOCK_CANCEL), 2), 410);
+    printT(T(S_CLOCK_CANCEL));
+  }
 
   const ver = `TamaPoke v${FW_VERSION}`;
   setSize(1);
@@ -1414,6 +1472,7 @@ function clockTap(x, y) {
     }
   }
   if (y >= 340 && y <= 388 && x >= 133 && x <= 333) applyClock();
+  if (TP_EXT && y >= 392 && y <= 430 && x >= 143 && x <= 323 && typeof openOptions === 'function') openOptions();
 }
 
 function drawStreakBadge() {
@@ -1499,9 +1558,10 @@ function renderCardStats() {
   setSize(3);
   setCur(centerX(T(S_BATTLE), 3), 48);
   printT(T(S_BATTLE));
-  drawCardStat(118, T(S_STAT_ATK), pet.atkStat(), 260, UI_BAR_BAD);
-  drawCardStat(160, T(S_STAT_DEF), pet.defStat(), 260, 0x4C98);
-  drawCardStat(202, T(S_STAT_SPE), pet.speStat(), 260, UI_BAR_WARN);
+  drawTypeChips(CX, 80, pet.speciesId, true);
+  drawCardStat(118, T(S_STAT_ATK), pet.atkStat(), 255, UI_BAR_BAD);
+  drawCardStat(160, T(S_STAT_DEF), pet.defStat(), 255, 0x4C98);
+  drawCardStat(202, T(S_STAT_SPE), pet.speStat(), 255, UI_BAR_WARN);
   drawCardStat(244, T(S_STAT_WGT), pet.weight, 100, 0xB3C8);
   gfx.fillRoundRect(96, 300, 274, 40, 12, UI_BAR_BAD);
   gfx.setTextColor(UI_BG_DAY);
@@ -1548,12 +1608,14 @@ function renderCardProgress() {
   setCur(centerX(lv, 5), 86);
   printT(lv);
 
-  const into = pet.ageMinutes % MINUTES_PER_LEVEL;
+  const maxed = TP_EXT && pet.level() >= LV_MAX;   // fork : niveau 100 = plafond
+  const into = maxed ? MINUTES_PER_LEVEL : pet.ageMinutes % MINUTES_PER_LEVEL;
   const bx = 93, bw = 280, by = 158, bh = 22;
   gfx.fillRoundRect(bx, by, bw, bh, 6, UI_TRACK);
   const fw = idiv((bw - 4) * into, MINUTES_PER_LEVEL);
-  if (fw > 0) gfx.fillRoundRect(bx + 2, by + 2, fw, bh - 4, 5, UI_BAR_OK);
-  const nx = sprintf(T(S_NEXT_LVL_FMT), MINUTES_PER_LEVEL - into, pet.level() + 1);
+  if (fw > 0) gfx.fillRoundRect(bx + 2, by + 2, fw, bh - 4, 5, maxed ? UI_BAR_WARN : UI_BAR_OK);
+  const LVMAX_TXT = ['NIVEL MAXIMO', 'MAX LEVEL', 'NIVEAU MAX', 'MAX. LEVEL', 'LIVELLO MAX', 'NIVEL MAXIMO', 'さいだい レベル', '최대 레벨'];
+  const nx = maxed ? LVMAX_TXT[gLang] : sprintf(T(S_NEXT_LVL_FMT), MINUTES_PER_LEVEL - into, pet.level() + 1);
   gfx.setTextColor(UI_INK);
   setSize(2);
   setCur(centerX(nx, 2), by + 32);
@@ -1566,7 +1628,7 @@ function renderCardProgress() {
   if (d.evolvesTo === 0) {
     evo = T(S_FINAL_FORM);
   } else {
-    const needed = d.evolveLevel + pet.careMistakes;
+    const needed = evoNeed(d.evolveLevel + pet.careMistakes);
     if (pet.level() >= needed) {
       if (pet.lowestStat() >= 40) { evo = T(S_EVO_READY); evoCol = UI_BAR_OK; }
       else { evo = T(S_EVO_BLOCKED); evoCol = UI_BAR_BAD; }
@@ -1590,10 +1652,12 @@ function renderCard() {
   if (cardPage === 0) renderCardProfile();
   else if (cardPage === 1) renderCardStats();
   else if (cardPage === 2) renderCardMedals();
-  else renderCardProgress();
-  for (let i = 0; i < 4; i++) {
-    if (i === cardPage) gfx.fillCircle(194 + i * 26, 374, 5, UI_INK);
-    else gfx.drawCircle(194 + i * 26, 374, 4, UI_INK);
+  else if (cardPage === 3) renderCardProgress();
+  else renderCardBadges();
+  const np = TP_EXT ? 5 : 4, x0 = CX - (np - 1) * 13;
+  for (let i = 0; i < np; i++) {
+    if (i === cardPage) gfx.fillCircle(x0 + i * 26, 374, 5, UI_INK);
+    else gfx.drawCircle(x0 + i * 26, 374, 4, UI_INK);
   }
   gfx.setTextColor(UI_TRACK);
   setSize(2);
@@ -2158,7 +2222,7 @@ function drawMap(name, n, x, y, s, silhouette) {
 // ==================================================== fork : soif, pas, combats
 let pedOpen = false, battleOpen = false;
 let toastText = '', toastUntil = 0;
-function toast(t, ms = 2500) { toastText = t; toastUntil = millis() + ms; }
+function toast(t, ms = 2500) { toastText = gCjkFont ? String(t) : toCp437(String(t)); toastUntil = millis() + ms; }
 
 // ---- pastilles du haut (série + pas). Le firmware place la flamme en (26,16),
 // hors du cercle visible : ici les deux sont centrées dans la bande du haut.
@@ -2256,10 +2320,90 @@ function enableMotion() {
 }
 function openPed() {
   if (pet.awaitingStarter()) return;
-  pedOpen = true;
+  pedOpen = true; pedHist = 0;
   pollSteps();
 }
+// historique des pas (v10) : touche le grand nombre -> 7 jours -> 30 jours -> retour
+let pedHist = 0;
+const PEDX = {
+  D7: ['7 DÍAS', '7 DAYS', '7 JOURS', '7 TAGE', '7 GIORNI', '7 DIAS', '7にち', '7일'],
+  D30: ['30 DÍAS', '30 DAYS', '30 JOURS', '30 TAGE', '30 GIORNI', '30 DIAS', '30にち', '30일'],
+  AVG: ['Media %u', 'Avg %u', 'Moyenne %u', 'Schnitt %u', 'Media %u', 'Média %u', 'へいきん %u', '평균 %u'],
+  REC: ['Récord %u', 'Best %u', 'Record %u', 'Rekord %u', 'Record %u', 'Recorde %u', 'さいこう %u', '최고 %u'],
+  TOT: ['Total %u', 'Total %u', 'Total %u', 'Summe %u', 'Totale %u', 'Total %u', 'ごうけい %u', '합계 %u'],
+  HINT: ['Toca: historial', 'Tap: history', 'Touche : historique', 'Tippen: Verlauf', 'Tocca: storico', 'Toque: histórico', 'タッチで りれき', '터치: 기록'],
+  DAYS: ['DLMXJVS', 'SMTWTFS', 'DLMMJVS', 'SMDMDFS', 'DLMMGVS', 'DSTQQSS', '日月火水木金土', '일월화수목금토'],
+};
+const PDX = (k, ...a) => sprintf(gLang >= 6 ? PEDX[k][gLang] : toCp437(PEDX[k][gLang]), ...a);
+function stepSeries(n) {
+  const d0 = pet.stepsDay || pet.today();
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = d0 - i;
+    out.push({ d, v: (d === pet.stepsDay ? pet.stepsToday : (pet.stepHist[d] || 0)) });
+  }
+  return out;
+}
+function renderPedHist() {
+  gfx.fillScreen(RGB565_BLACK);
+  gfx.fillCircle(CX, CY, 231, UI_BG_DAY);
+  const n = pedHist;
+  const ser = stepSeries(n);
+  gfx.setTextColor(UI_INK);
+  setSize(3);
+  const title = PDX(n === 7 ? 'D7' : 'D30');
+  setCur(centerX(title, 3), 46);
+  printT(title);
+  const max = Math.max(1000, ...ser.map((x) => x.v));
+  const x0 = 78, x1 = 388, yb = 290, hmax = 180;
+  const slot = (x1 - x0) / n, bw = Math.max(3, Math.floor(slot * 0.7));
+  // ligne des 10 000 pas si visible
+  if (max >= 10000) {
+    const yl = yb - Math.round(10000 / max * hmax);
+    for (let x = x0; x < x1; x += 8) gfx.fillRect(x, yl, 4, 2, UI_TRACK);
+  }
+  ser.forEach((p, i) => {
+    const h = p.v ? Math.max(2, Math.round(p.v / max * hmax)) : 0;
+    const x = Math.round(x0 + i * slot + (slot - bw) / 2);
+    const today = i === n - 1;
+    if (h) gfx.fillRoundRect(x, yb - h, bw, h, Math.min(4, idiv(bw, 2)), today ? UI_BAR_WARN : (p.v >= 10000 ? 0x4C98 : UI_BAR_OK));
+    if (n === 7) {
+      const wd = new Date(p.d * 86400000).getUTCDay();
+      const lab = PEDX.DAYS[gLang][wd] || '';
+      gfx.setTextColor(today ? UI_BAR_WARN : UI_INK);
+      setSize(2);
+      setCur(x + idiv(bw - textW(lab, 2), 2), yb + 8);
+      printT(lab);
+      if (p.v) {
+        const vs = p.v >= 10000 ? `${Math.floor(p.v / 1000)}k` : p.v >= 1000 ? `${(p.v / 1000).toFixed(1)}k` : String(p.v);
+        setSize(1);
+        gfx.setTextColor(UI_INK);
+        setCur(x + idiv(bw - textW(vs, 1), 2), yb - h - 10);
+        printT(vs);
+      }
+    }
+  });
+  gfx.fillRect(x0, yb, x1 - x0, 2, UI_INK);
+  const vals = ser.map((x) => x.v);
+  const tot = vals.reduce((a, b) => a + b, 0);
+  const active = vals.filter((v) => v > 0).length || 1;
+  setSize(2);
+  gfx.setTextColor(UI_INK);
+  const l1 = `${PDX('AVG', Math.round(tot / active))}  ${PDX('TOT', tot)}`;
+  setCur(centerX(l1, 2), 322);
+  printT(l1);
+  const l2 = PDX('REC', pet.stepsBest);
+  gfx.setTextColor(0x4C98);
+  setCur(centerX(l2, 2), 346);
+  printT(l2);
+  gfx.setTextColor(UI_TRACK);
+  setCur(centerX(T(S_BACK), 2), 410);
+  printT(T(S_BACK));
+}
+
 function pedTap(x, y) {
+  if (pedHist) { pedHist = pedHist === 7 ? 30 : 0; return; }
+  if (y >= 100 && y <= 170) { pedHist = 7; sfxPlay(SFX_TAP); return; }
   if (stepState === 0 && y >= 318 && y <= 348) {
     try { window.TPStore.askStepPermission(); } catch (e) { /* rien */ }
     return;
@@ -2274,6 +2418,7 @@ function pedTap(x, y) {
   pedOpen = false;
 }
 function renderPed() {
+  if (pedHist) { renderPedHist(); return; }
   gfx.fillScreen(RGB565_BLACK);
   gfx.fillCircle(CX, CY, 231, UI_BG_DAY);
   gfx.setTextColor(UI_INK);
@@ -2291,9 +2436,14 @@ function renderPed() {
   setSize(2);
   setCur(centerX(TX('X_STEPS_TODAY'), 2), 154);
   printT(TX('X_STEPS_TODAY'));
+  setSize(1);
+  gfx.setTextColor(0x4C98);
+  setCur(centerX(PDX('HINT'), 1), 172);
+  printT(PDX('HINT'));
+  setSize(2);
   const tot = sprintf(TX('X_STEPS_TOTAL'), pet.stepsTotal, pet.stepsBest);
   gfx.setTextColor(UI_INK);
-  setCur(centerX(tot, 2), 180);
+  setCur(centerX(tot, 2), 184);
   printT(tot);
 
   // jauge vers la prochaine rencontre
@@ -2306,16 +2456,20 @@ function renderPed() {
   const nx = pet.pendingEnc >= 3 ? TX('X_ENC_FULL') : sprintf(TX('X_NEXT_ENC'), pet.stepsToEnc);
   setCur(centerX(nx, 2), 234);
   printT(nx);
-  const ec = sprintf(TX('X_ENC_COUNT'), pet.pendingEnc);
+  const ec = `${sprintf(TX('X_ENC_COUNT'), pet.pendingEnc)}  ${sprintf(TX('X_WINS'), pet.battlesWon)}`;
   gfx.setTextColor(pet.pendingEnc > 0 ? UI_BAR_BAD : UI_INK);
   setCur(centerX(ec, 2), 260);
   printT(ec);
-  const wn = sprintf(TX('X_WINS'), pet.battlesWon);
-  gfx.setTextColor(UI_INK);
-  setCur(centerX(wn, 2), 284);
-  printT(wn);
-  if (pet.reservedEgg) {
-    const ne = sprintf(TX('X_NEXT_EGG'), (pet.reservedShiny ? '*' : '') + dexName(pet.reservedEgg));
+  // zone de la semaine + jour/nuit (v11)
+  const zid = ZONES[weekZone(pet.today())].id;
+  const zl = AXT('ZS', AXT('Z_' + zid), isNightHour(pet.hourNow()) ? AXT('NIGHT_S') : AXT('DAY_S'));
+  const zt = gCjkFont ? zl : toCp437(zl);
+  gfx.setTextColor(0x8A2B);
+  setCur(centerX(zt, 2), 284);
+  printT(zt);
+  if (pet.incubator) {
+    const inc = pet.incubator;
+    const ne = `${TMT('INC')}: ${TMT('INC_STEPS', inc.need - inc.left, inc.need)}`;
     gfx.setTextColor(0x4C98);
     setCur(centerX(ne, 2), 306);
     printT(ne);
@@ -2354,15 +2508,18 @@ const wildPmd = new PmdMon();
 const TURN_MS = 1300, HIT_AT = 760;
 let bt = null;
 const WILD_POS = { x: 330, y: 214 }, ME_POS = { x: 150, y: 330 };
+const ME_DROP = 50;  // v14 : mon POKEMON posé sur son estrade (libère la place de la bulle)
 
 function openBattle() {
   if (!pet.canBattle()) return;
   if (pet.energy < 20) { toast(TX('X_TOO_TIRED')); sfxPlay(SFX_DENY); return; }
   const w = pet.pickWild();
   w.max = w.hp;
+  w.st = newStages(); w.moves = knownMoves(w.dex, w.lv);
   bt = {
     phase: 'intro', t0: millis(), wild: w,
-    me: { hp: pet.hpMax(), max: pet.hpMax(), atk: pet.atkStat(), def: pet.defStat(), spe: pet.speStat() },
+    me: { hp: pet.hpMax(), max: pet.hpMax(), atk: pet.atkStat(), def: pet.defStat(), spe: pet.speStat(),
+      dex: pet.speciesId, st: newStages(), moves: knownMoves(pet.speciesId, pet.level()) },
     turn: 'me', applied: false, crit: false, tapped: false, msg: '', popups: [],
     hurt: { me: 0, wild: 0 }, shownHp: { me: 0, wild: 0 }, result: 0,
   };
@@ -2383,15 +2540,98 @@ function endBattle(result) {
 }
 function startFight() {
   bt.phase = 'fight';
+  const w0 = bt.wild;
+  if (!w0.st) w0.st = newStages();
+  if (!w0.moves) w0.moves = knownMoves(w0.dex, w0.lv);
+  // attaque par défaut : la meilleure contre cet adversaire ; elle reste choisie
+  // jusqu'à ce qu'on touche une autre attaque (v13)
+  if (!bt.autoMove) bt.autoMove = aiMove(bt.me, bt.wild, bt.me.moves, () => 0);
   const me = bt.me.spe, wi = bt.wild.spe;
   bt.turn = me > wi ? 'me' : me < wi ? 'wild' : (random(2) ? 'me' : 'wild');
   newTurn();
 }
 function newTurn() {
-  bt.t0 = millis(); bt.applied = false; bt.crit = false; bt.tapped = false;
-  bt.msg = bt.turn === 'me' ? (bt.duel ? sprintf(TX('X_ATTACKS'), myName()) : TX('X_TAP_HINT'))
-         : sprintf(TX('X_ATTACKS'), oppName());
+  bt.t0 = millis(); bt.applied = false; bt.crit = false; bt.tapped = false; bt.choosing = false;
+  if (bt.duel) {
+    const ev = bt.sim.events[bt.ei];
+    if (ev && ev.ko) { bt.move = -2; bt.msg = sprintf(TX('X_FAINT'), bt.turn === 'me' ? myName() : oppName()); return; }
+    if (ev && ev.sw) { bt.move = -2; bt.msg = ''; return; }
+    bt.move = ev && ev.m !== undefined ? ev.m : -1;
+    const who = bt.turn === 'me' ? myName() : oppName();
+    bt.msg = bt.move >= 0 ? sprintf(TX('X_USES'), who, moveName(bt.move)) : sprintf(TX('X_ATTACKS'), who);
+    return;
+  }
+  if (bt.turn === 'me') {          // v13 : l'attaque choisie se répète toute seule
+    bt.move = bt.autoMove;
+    bt.msg = sprintf(TX('X_USES'), myName(), moveName(bt.move));
+  } else {
+    bt.move = aiMove(bt.wild, bt.me, bt.wild.moves, random);
+    bt.msg = sprintf(TX('X_USES'), oppName(), moveName(bt.move));
+  }
 }
+// boutons des 4 attaques (v12)
+const MOVE_BTNS = [[98, 338, 134, 34], [236, 338, 134, 34], [98, 378, 134, 34], [236, 378, 134, 34]];
+function drawMoveButtons() {
+  const ms = bt.me.moves;
+  ms.forEach((m, i) => {
+    const [x, y, w, h] = MOVE_BTNS[i];
+    const mv = moveRec(m);
+    const col = mv.t ? (TYPE_COLORS[mv.t] || UI_TRACK) : UI_TRACK;
+    const on = m === bt.autoMove;
+    gfx.fillRoundRect(x, y, w, h, 10, col);
+    gfx.drawRoundRect(x, y, w, h, 10, on ? UI_WHITE : UI_INK);
+    if (on) { gfx.drawRoundRect(x + 1, y + 1, w - 2, h - 2, 9, UI_WHITE); gfx.drawRoundRect(x + 2, y + 2, w - 4, h - 4, 8, UI_INK); }
+    let nm = moveName(m);
+    setSize(2);
+    while (nm.length > 2 && textW(nm, 2) > w - 10) nm = nm.slice(0, -1);
+    gfx.setTextColor(UI_WHITE);
+    setCur(x + idiv(w - textW(nm, 2), 2), y + 10);
+    printT(nm);
+    // petite marque : attaque de statut / soin
+    if (mv.p === 0) gfx.fillCircle(x + w - 8, y + 7, 3, UI_WHITE);
+  });
+}
+// message sur une ou deux lignes
+function drawBattleMsg(msg, y, ink, boxed) {
+  setSize(2);
+  if (boxed && msg) {                 // bulle blanche lisible par-dessus les sprites
+    const two = textW(msg, 2) > 380;
+    const w = Math.min(400, (two ? Math.ceil(textW(msg, 2) / 2) + 60 : textW(msg, 2)) + 24);
+    const h = two ? 46 : 26;
+    gfx.fillRoundRect(CX - idiv(w, 2), y - idiv(h, 2) + 6, w, h, 10, UI_WHITE);
+    gfx.drawRoundRect(CX - idiv(w, 2), y - idiv(h, 2) + 6, w, h, 10, UI_INK);
+    ink = UI_INK;
+  }
+  gfx.setTextColor(ink);
+  if (textW(msg, 2) <= 380) { setCur(centerX(msg, 2), y); printT(msg); return; }
+  const mid = Math.floor(msg.length / 2);
+  let cut = msg.lastIndexOf(' ', mid);
+  if (cut < 4) cut = msg.indexOf(' ', mid);
+  if (cut < 0) cut = mid;
+  const a = msg.slice(0, cut), b = msg.slice(cut + 1);
+  setCur(centerX(a, 2), y - 10); printT(a);
+  setCur(centerX(b, 2), y + 10); printT(b);
+}
+// texte après le coup (les deux modes : sauvage et duel rejoué)
+function moveOutcomeMsg(ev, attName, defName) {
+  const mv = ev.m >= 0 ? moveRec(ev.m) : null;
+  if (ev.miss) return sprintf(TX('X_MISS'), attName);
+  if (mv && mv.p > 0 && ev.mult === 0) return sprintf(TX('X_NOEFF'), defName);
+  if (ev.struggle) return sprintf(TX('X_STRUGGLE'), attName);
+  if (ev.crit) return TX('X_CRIT');
+  if (ev.dmg > 0 && ev.mult > 1) return TX('X_SUPER');
+  if (ev.dmg > 0 && ev.mult < 1) return TX('X_NOTVERY');
+  if (ev.fx && ev.fx.length) {
+    const [who, k, d] = ev.fx[0];
+    const nm = who === 'att' ? attName : defName;
+    if (!d) return TX('X_NOCHG');
+    return sprintf(TX(d > 0 ? 'X_UP' : 'X_DOWN'), nm, TX('ST_' + k));
+  }
+  if (ev.heal > 0) return sprintf(TX('X_HEAL'), attName);
+  if (mv && mv.h) return TX('X_NOCHG');
+  return null;
+}
+function myDex() { return bt && bt.duel ? bt.myCard.dex : pet.speciesId; }
 function myName() {
   // en duel, on affiche sa carte (figée) : même forme que chez l'ami
   if (bt && bt.duel) return bt.myCard.nick ? bt.myCard.nick : dexName(bt.myCard.dex);
@@ -2405,8 +2645,26 @@ function oppName() {
 function startDuelFight() {
   bt.phase = 'fight';
   bt.ei = 0;
-  bt.turn = bt.sim.events[0].by === bt.myRole ? 'me' : 'wild';
+  bt.turn = evSide(bt.sim.events[0]) === bt.myRole ? 'me' : 'wild';
   newTurn();
+}
+// duel 3 contre 3 : le POKEMON suivant entre en jeu
+function duelSwitch(ev) {
+  const card = ev.sw === 'p1' ? bt.sim.p1 : bt.sim.p2;
+  const e = card.team[ev.i];
+  const mine = ev.sw === bt.myRole;
+  if (mine) {
+    bt.myCard = { ...bt.myCard, dex: e.dex, sh: e.sh, lv: e.lv, nick: e.nick };
+    bt.me = { hp: e.hp, max: e.hp, atk: e.atk, def: e.def, spe: e.spe };
+    bt.shownHp.me = e.hp;
+    duelMePmd.load(e.dex, e.sh);
+  } else {
+    bt.wild = { dex: e.dex, lv: e.lv, shiny: e.sh, atk: e.atk, def: e.def, spe: e.spe, hp: e.hp, max: e.hp, nick: e.nick };
+    bt.shownHp.wild = e.hp;
+    wildPmd.load(e.dex, e.sh);
+  }
+  bt.msg = sprintf(TX('X_SENDS'), mine ? myName() : oppName());
+  sfxPlay(SFX_WILD);
 }
 function ringRadius(t) { return 24 + Math.max(0, (HIT_AT - t) / HIT_AT) * 72; }
 
@@ -2422,7 +2680,20 @@ function battleTap(x, y) {
     }
     return;
   }
-  if (bt.phase === 'fight' && bt.duel) return;
+  if (bt.phase === 'fight' && bt.duel) { bt.fast = !bt.fast; return; }
+  if (bt.phase === 'fight') {       // les 4 attaques restent touchables tout le combat
+    let hit = false;
+    MOVE_BTNS.forEach(([bx, by, bw, bh], i) => {
+      if (i < bt.me.moves.length && x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+        hit = true;
+        bt.autoMove = bt.me.moves[i];
+        // mon tour n'a pas encore frappé : on change tout de suite
+        if (bt.turn === 'me' && !bt.applied) { bt.move = bt.autoMove; bt.msg = sprintf(TX('X_USES'), myName(), moveName(bt.move)); }
+        sfxPlay(SFX_TAP);
+      }
+    });
+    if (hit) return;
+  }
   if (bt.phase === 'fight') {
     if (bt.turn === 'me' && !bt.applied && !bt.tapped) {
       bt.tapped = true;
@@ -2431,10 +2702,19 @@ function battleTap(x, y) {
     return;
   }
   if (bt.phase === 'egg') {
-    if (y >= 330 && y <= 380) {
-      if (x >= 113 && x < 228) pet.reserveEgg(bt.wild);
-      if (x >= 113 && x <= 353) { battleOpen = false; wildPmd.unload(); bt = null; }
-    }
+    if (x < 93 || x > 373) return;
+    let done = false;
+    if (y >= 258 && y <= 288) {
+      if (pet.boxFull()) { sfxPlay(SFX_DENY); return; }
+      pet.keepWild(bt.wild); sfxPlay(SFX_HATCH); done = true;
+    } else if (y >= 292 && y <= 322) {
+      if (pet.pcFull()) { sfxPlay(SFX_DENY); return; }
+      pet.keepWildPC(bt.wild); sfxPlay(SFX_HATCH); done = true;
+    } else if (y >= 326 && y <= 356) {
+      if (pet.incubator) { sfxPlay(SFX_DENY); return; }
+      pet.reserveEgg(bt.wild); sfxPlay(SFX_TAP); done = true;
+    } else if (y >= 360 && y <= 390) done = true;
+    if (done) { battleOpen = false; wildPmd.unload(); bt = null; }
     return;
   }
   if (bt.phase === 'result' && now - bt.t0 > 1200) finishResult();
@@ -2460,9 +2740,27 @@ function drawBattleScene() {
   gfx.fillRoundRect(ME_POS.x - 70, ME_POS.y - 10, 140, 20, 10, pad);
   return night ? UI_INK_NIGHT : UI_INK;
 }
-function drawHpBox(x, y, name, lv, hp, max) {
-  gfx.fillRoundRect(x, y, 196, 44, 10, UI_WHITE);
-  gfx.drawRoundRect(x, y, 196, 44, 10, UI_INK);
+// pastilles de type (couleurs officielles) ; renvoie la largeur dessinée
+function drawTypeChips(x, y, dex, center) {
+  const ts = monTypes(dex);
+  setSize(gCjkFont ? 2 : 1);
+  const sz = gCjkFont ? 2 : 1;
+  const ws = ts.map((t) => textW(typeName(t), sz) * (gCjkFont ? 1 : 2) + 12);
+  const total = ws.reduce((a, b) => a + b, 0) + (ts.length - 1) * 4;
+  let cx = center ? x - idiv(total, 2) : x;
+  ts.forEach((t, i) => {
+    gfx.fillRoundRect(cx, y, ws[i], 18, 8, TYPE_COLORS[t] || UI_TRACK);
+    gfx.setTextColor(UI_WHITE);
+    if (gCjkFont) { setSize(2); setCur(cx + 6, y + 1); printT(typeName(t)); }
+    else { setSize(2); const nm = typeName(t); setCur(cx + idiv(ws[i] - textW(nm, 2), 2), y + 2); printT(nm); }
+    cx += ws[i] + 4;
+  });
+  return total;
+}
+function drawHpBox(x, y, name, lv, hp, max, dex) {
+  const h = dex ? 66 : 44;
+  gfx.fillRoundRect(x, y, 196, h, 10, UI_WHITE);
+  gfx.drawRoundRect(x, y, 196, h, 10, UI_INK);
   gfx.setTextColor(UI_INK);
   setSize(2);
   const lvT = sprintf(T(S_LVL_FMT), lv);
@@ -2479,28 +2777,52 @@ function drawHpBox(x, y, name, lv, hp, max) {
   const fw = Math.floor((bw - 4) * v / max);
   const col = v * 2 >= max ? UI_BAR_OK : v * 4 >= max ? UI_BAR_WARN : UI_BAR_BAD;
   if (fw > 0) gfx.fillRoundRect(bx + 2, by + 2, fw, 6, 3, col);
+  if (dex) drawTypeChips(bx, y + 42, dex, false);
 }
 
 function renderBattle() {
   const now = millis();
   const ink = drawBattleScene();
   const w = bt.wild;
+  // duel rejoué : toucher l'écran passe en accéléré (x3)
+  if (bt.duel && bt.fast && bt.phase === 'fight') bt.t0 -= 2 * Math.min(100, frameDt || 16);
   const t = now - bt.t0;
 
   // logique du tour
   if (bt.phase === 'fight') {
     const att = bt.turn === 'me' ? bt.me : w;
     const def = bt.turn === 'me' ? w : bt.me;
-    if (!bt.applied && t >= HIT_AT) {
-      if (bt.duel) bt.crit = bt.sim.events[bt.ei].crit;
-      const dmg = bt.duel ? bt.sim.events[bt.ei].dmg : battleDamage(att.atk, def.def, bt.turn === 'me' && bt.crit);
-      def.hp = Math.max(0, def.hp - dmg);
+    if (!bt.applied && !bt.choosing && t >= HIT_AT) {
+      const aName = bt.turn === 'me' ? myName() : oppName(), dName = bt.turn === 'me' ? oppName() : myName();
+      let ev;
+      const e0 = bt.duel ? bt.sim.events[bt.ei] : null;
+      if (e0 && (e0.ko || e0.sw)) {          // K.O. / remplaçant (duel 3 contre 3)
+        bt.applied = true;
+        if (e0.sw) duelSwitch(e0);
+        else bt.hurt[bt.turn] = now + 600;
+      } else {
+      if (bt.duel) {
+        const e = bt.sim.events[bt.ei];
+        // anciennes cartes (TPD1-3) : { dmg, crit, ba } ; TPD4 : événement d'attaque complet
+        ev = e.m !== undefined ? e : { m: -1, dmg: e.dmg, crit: e.crit, mult: (e.ba || { mult: 1 }).mult, struggle: e.ba && e.ba.struggle, fx: [], heal: 0 };
+        def.hp = Math.max(0, def.hp - (ev.dmg || 0));
+        if (ev.heal) att.hp = Math.min(att.max, att.hp + ev.heal);
+        bt.crit = !!ev.crit;
+      } else {
+        ev = useMove(att, def, bt.move, bt.turn === 'me' && bt.crit, random);
+      }
       bt.applied = true;
-      const tgt = bt.turn === 'me' ? WILD_POS : ME_POS;
-      bt.popups.push({ x: tgt.x, y: tgt.y - 150, text: `-${dmg}`, t0: now, crit: (bt.turn === 'me' || bt.duel) && bt.crit });
-      bt.hurt[bt.turn === 'me' ? 'wild' : 'me'] = now + 450;
-      if (bt.turn === 'me' || bt.duel) bt.msg = bt.crit ? TX('X_CRIT') : sprintf(TX('X_ATTACKS'), bt.turn === 'me' ? myName() : oppName());
-      sfxPlay(bt.turn === 'me' && bt.crit ? SFX_PLAY : SFX_HIT);
+      const tgt = bt.turn === 'me' ? WILD_POS : ME_POS, src = bt.turn === 'me' ? ME_POS : WILD_POS;
+      if (ev.dmg > 0) {
+        bt.popups.push({ x: tgt.x, y: tgt.y - 150, text: `-${ev.dmg}`, t0: now, crit: !!ev.crit });
+        bt.hurt[bt.turn === 'me' ? 'wild' : 'me'] = now + 450;
+      }
+      if (ev.heal > 0) bt.popups.push({ x: src.x, y: src.y - 150, text: `+${ev.heal}`, t0: now, heal: true });
+      const om = moveOutcomeMsg(ev, aName, dName);
+      if (om) bt.msg = om;
+      if (ev.mult > 1 && ev.dmg > 0 && typeof haptic === 'function') haptic(bt.turn === 'me' ? 30 : 60);
+      sfxPlay(ev.miss ? SFX_DENY : ev.dmg > 0 ? (ev.crit ? SFX_PLAY : SFX_HIT) : SFX_TAP);
+      }
     }
     if (t >= TURN_MS && bt.duel) {
       bt.ei++;
@@ -2512,10 +2834,10 @@ function renderBattle() {
         sfxPlay(bt.result ? SFX_WIN : SFX_BYE);
         bt.msg = bt.result ? TX('X_WIN') : TX('X_LOSE');
       } else {
-        bt.turn = bt.sim.events[bt.ei].by === bt.myRole ? 'me' : 'wild';
+        bt.turn = evSide(bt.sim.events[bt.ei]) === bt.myRole ? 'me' : 'wild';
         newTurn();
       }
-    } else if (t >= TURN_MS) {
+    } else if (t >= TURN_MS && !bt.choosing) {
       if (w.hp <= 0 || bt.me.hp <= 0) {
         bt.result = w.hp <= 0 ? 1 : 0;
         bt.phase = 'result';
@@ -2565,11 +2887,11 @@ function renderBattle() {
   if (mp.loaded) {
     const a = actFor(mp, 'me');
     const blink = timeLeft(bt.hurt.me) && Math.floor(now / 80) % 2 === 0;
-    if (!blink) drawPmdActM(mp, a, ME_POS.x + lunge('me'), ME_POS.y, now, true, false, 3);
+    if (!blink) drawPmdActM(mp, a, ME_POS.x + lunge('me'), ME_POS.y + ME_DROP, now, true, false, 3);
   }
 
   // anneau de timing sur l'adversaire pendant mon tour
-  if (bt.phase === 'fight' && bt.turn === 'me' && !bt.applied && !bt.duel) {
+  if (bt.phase === 'fight' && bt.turn === 'me' && !bt.applied && !bt.duel && !bt.choosing && moveRec(bt.move).p > 0) {
     const cy = WILD_POS.y - 60;
     gfx.drawCircle(WILD_POS.x, cy, 30, UI_WHITE);
     gfx.drawCircle(WILD_POS.x, cy, 31, UI_WHITE);
@@ -2584,22 +2906,20 @@ function renderBattle() {
   bt.popups = bt.popups.filter((p) => now - p.t0 < 800);
   for (const p of bt.popups) {
     const k = now - p.t0;
-    gfx.setTextColor(p.crit ? UI_BAR_WARN : UI_BAR_BAD);
+    gfx.setTextColor(p.heal ? UI_BAR_OK : p.crit ? UI_BAR_WARN : UI_BAR_BAD);
     setSize(p.crit ? 4 : 3);
     setCur(p.x - idiv(textW(p.text, p.crit ? 4 : 3), 2), p.y - Math.floor(k / 20));
     printT(p.text);
   }
 
   // boîtes de PV
-  drawHpBox(110, 60, oppName(), w.lv, Math.round(bt.shownHp.wild), w.max);
+  drawHpBox(110, 54, oppName(), w.lv, Math.round(bt.shownHp.wild), w.max, w.dex);
   const myShy = bt.duel ? bt.myCard.sh : pet.shiny, myLv = bt.duel ? bt.myCard.lv : pet.level();
-  drawHpBox(214, 266, (myShy ? '*' : '') + myName(), myLv, Math.round(bt.shownHp.me), bt.me.max);
+  drawHpBox(214, 262, (myShy ? '*' : '') + myName(), myLv, Math.round(bt.shownHp.me), bt.me.max, myDex());
 
-  // message
-  gfx.setTextColor(ink);
-  setSize(2);
-  setCur(centerX(bt.msg, 2), 356);
-  printT(bt.msg);
+  // combat sauvage : message au-dessus, les 4 attaques en bas (toujours visibles)
+  if (bt.phase === 'fight' && !bt.duel) { drawBattleMsg(bt.msg, 212, ink, true); drawMoveButtons(); }
+  else drawBattleMsg(bt.msg, 356, ink);
 
   if (bt.duel && bt.phase === 'result') {
     const v = sprintf(DX.VERIF[gLang], bt.verif);
@@ -2629,25 +2949,30 @@ function renderBattle() {
     setCur(centerX(c, 2), 178);
     printT(c);
   } else if (bt.phase === 'egg') {
-    gfx.fillRoundRect(73, 150, 320, 240, 16, UI_WHITE);
-    gfx.drawRoundRect(73, 150, 320, 240, 16, UI_INK);
+    gfx.fillRoundRect(73, 150, 320, 248, 16, UI_WHITE);
+    gfx.drawRoundRect(73, 150, 320, 248, 16, UI_INK);
     const c = sprintf(TX('X_CAUGHT'), (w.shiny ? '*' : '') + dexName(w.dex));
     gfx.setTextColor(UI_BAR_OK);
     setSize(2);
-    setCur(centerX(c, 2), 172);
+    setCur(centerX(c, 2), 166);
     printT(c);
-    drawMap('SPR_EGG', 32, CX - 48, 196, 3, false);
-    const q = TX('X_KEEP_EGG');
+    drawThumbIn(w.dex, CX - 40, 182, 80, 48, false, w.shiny);
+    const q = TMT('WHAT');
     gfx.setTextColor(UI_INK);
-    setCur(centerX(q, 2), 302);
+    setCur(centerX(q, 2), 236);
     printT(q);
-    gfx.fillRoundRect(113, 330, 115, 50, 12, UI_BAR_OK);
-    gfx.fillRoundRect(238, 330, 115, 50, 12, UI_BAR_BAD);
-    gfx.setTextColor(UI_WHITE);
-    setCur(113 + idiv(115 - textW(T(S_YES), 2), 2), 347);
-    printT(T(S_YES));
-    setCur(238 + idiv(115 - textW(T(S_NO), 2), 2), 347);
-    printT(T(S_NO));
+    const opt = (y, ok, col, txt, sub) => {
+      gfx.fillRoundRect(93, y, 280, 30, 10, ok ? col : UI_TRACK);
+      gfx.setTextColor(ok ? UI_WHITE : UI_INK);
+      setSize(2);
+      const t2 = ok ? txt : sub;
+      setCur(93 + idiv(280 - textW(t2, 2), 2), y + 8);
+      printT(t2);
+    };
+    opt(258, !pet.boxFull(), UI_BAR_OK, `${TMT('KEEP_TEAM')} ${pet.box.length}/${BOX_SIZE}`, TMT('TEAMFULL'));
+    opt(292, !pet.pcFull(), C565(0x6a, 0x7a, 0x9c), `${TMT('KEEP_PC')} ${pet.pc.length}/${PC_SIZE}`, TMT('PCFULL'));
+    opt(326, !pet.incubator, 0x4C98, TMT('KEEP_EGG'), TMT('INCFULL'));
+    opt(360, true, UI_BAR_BAD, TMT('KEEP_NONE'), '');
   }
 }
 
@@ -2669,6 +2994,8 @@ const NX = {
   WILD: ['¡Un POKÉMON salvaje!', 'A wild POKÉMON appeared!', 'Un POKÉMON sauvage est apparu !', 'Ein wildes POKÉMON erscheint!', 'Un POKÉMON selvatico!', 'Um POKÉMON selvagem apareceu!', 'やせいの ポケモンが あらわれた！', '야생 포켓몬이 나타났다!'],
   WILD2: ['Abre TamaPoke para luchar', 'Open TamaPoke to battle it', 'Ouvre TamaPoke pour le combattre', 'Öffne TamaPoke zum Kämpfen', 'Apri TamaPoke per combattere', 'Abra o TamaPoke para lutar', 'TamaPokeを ひらいて たたかおう', 'TamaPoke를 열어 배틀하세요'],
   STREAK: ['¡Tu racha de %u días te espera!', 'Your %u-day streak is waiting!', "Ta série de %u jours t'attend !", 'Deine %u-Tage-Serie wartet!', 'La tua serie di %u giorni ti aspetta!', 'Sua sequência de %u dias espera!', '%uにち れんぞく きろくが まってるよ！', '%u일 연속 기록이 기다려요!'],
+  INC: ['¡Tu huevo va a eclosionar! Abre TamaPoke', 'Your egg is hatching! Open TamaPoke', 'Ton œuf éclot ! Ouvre TamaPoke', 'Dein Ei schlüpft! Öffne TamaPoke', 'Il tuo uovo si schiude! Apri TamaPoke', 'Seu ovo está chocando! Abra o TamaPoke', 'タマゴが かえりそう！', '알이 부화해요! TamaPoke를 열어요'],
+  DAILY: ['Te quedan %u retos hoy', '%u challenges left today', "Il te reste %u défi(s) aujourd'hui", 'Noch %u Aufgaben heute', 'Ancora %u sfide oggi', 'Faltam %u desafios hoje', 'きょうの チャレンジ あと %u', '오늘 도전 %u개 남음'],
   STEPS: ['pasos hoy', 'steps today', "pas aujourd'hui", 'Schritte heute', 'passi oggi', 'passos hoje', 'ほ（きょう）', '걸음 (오늘)'],
 };
 const NXT = (k, ...a) => sprintf(NX[k][gLang], ...a);
@@ -2684,13 +3011,33 @@ function petNameU() { return pet.isEgg() ? 'TamaPoke' : uni(pet.nick ? pet.nick 
 
 let bgEnabled = true;
 function bgAvailable() { return !!(window.TPStore && window.TPStore.setPlan); }
+// v17 : réglages notifications / batterie (OPTIONS). mode 0 réactif, 1 équilibré, 2 économie
+const NOTIF_DEF = { mode: 1, quiet: true, qs: 22 * 60, qe: 8 * 60, qegg: false,
+  cat: { needs: true, evo: true, enc: true, egg: true, daily: true } };
+function notifCfg() {
+  const c = prefs.get('notif', null) || {};
+  return { ...NOTIF_DEF, ...c, cat: { ...NOTIF_DEF.cat, ...(c.cat || {}) } };
+}
+// interrupteur général (pastille NOTIF des réglages) ; le service ne tourne pas en mode Économie
 function loadBg() {
-  try { if (bgAvailable() && window.TPStore.isBackground) bgEnabled = !!window.TPStore.isBackground(); } catch (e) { bgEnabled = true; }
+  let svc = true;
+  try { if (bgAvailable() && window.TPStore.isBackground) svc = !!window.TPStore.isBackground(); } catch (e) { svc = true; }
+  bgEnabled = prefs.get('notifOn', svc) !== false;
+  applyService();
+}
+function applyService() {
+  try { if (window.TPStore && window.TPStore.setBackground) window.TPStore.setBackground(bgEnabled && notifCfg().mode !== 2); } catch (e) { /* rien */ }
 }
 function setBg(on) {
   bgEnabled = on;
-  try { if (window.TPStore && window.TPStore.setBackground) window.TPStore.setBackground(on); } catch (e) { /* rien */ }
+  prefs.put('notifOn', !!on); prefs.flush();
+  applyService();
   sendPlan(true);
+}
+// minute de la journée (heure locale) -> dans les heures calmes ?
+function inQuiet(cfg, minOfDay) {
+  if (!cfg.quiet || cfg.qs === cfg.qe) return false;
+  return cfg.qs < cfg.qe ? (minOfDay >= cfg.qs && minOfDay < cfg.qe) : (minOfDay >= cfg.qs || minOfDay < cfg.qe);
 }
 
 // alarmes prévues pendant l'absence (minutes réelles depuis maintenant)
@@ -2699,13 +3046,15 @@ function buildAlerts() {
   if (!bgEnabled || pet.ceremony || pet.awaitingStarter()) return out;
   const now = Date.now();
   const nm = petNameU();
-  const add = (min, x) => {
+  const cfg = notifCfg();
+  const add = (min, x, cat) => {
     min = Math.ceil(min);
-    if (min >= 1 && min <= 14 * 24 * 60) out.push({ at: now + min * 60000, t: 'TamaPoke', x });
+    if (!cfg.cat[cat || 'needs']) return;
+    if (min >= 1 && min <= 14 * 24 * 60) out.push({ at: now + min * 60000, t: 'TamaPoke', x, cat: cat || 'needs' });
   };
   if (pet.isEgg()) {
-    add(Math.max(1, 3 - pet.ageMinutes), NXT('HATCH'));
-    return out;
+    add(Math.max(1, 3 - pet.ageMinutes), NXT('HATCH'), 'egg');
+    return finishAlerts(out, cfg);
   }
   if (!pet.sleeping) {
     // hors ligne : nourriture -2/min, le reste -1/min, plancher 15 (alerte sous 25)
@@ -2720,10 +3069,10 @@ function buildAlerts() {
       const m = (needLv - 1) * MINUTES_PER_LEVEL - pet.ageMinutes;
       const at = (v, rate) => Math.max(15, v - rate * m);
       if (m > 0 && at(pet.fullness, 2) >= 40 && at(pet.joy, 1) >= 40 && at(pet.energy, 1) >= 40 &&
-          at(pet.hygiene, 1) >= 40 && (!TP_EXT || at(pet.water, 1) >= 40)) add(m, NXT('EVO', nm));
+          at(pet.hygiene, 1) >= 40 && (!TP_EXT || at(pet.water, 1) >= 40)) add(m, NXT('EVO', nm), 'evo');
     } else {
       const m = Math.max(FAREWELL_AGE_MIN, pet.farDeclinedAge) - pet.ageMinutes;
-      if (m > 0) add(m, NXT('FAREWELL', nm));
+      if (m > 0) add(m, NXT('FAREWELL', nm), 'evo');
     }
   }
   // série : rappel à 19 h le prochain jour où il n'a pas encore été soigné
@@ -2731,17 +3080,41 @@ function buildAlerts() {
     const local = rtcEpoch();
     const day = Math.floor(local / 86400);
     const target = (pet.lastCareDay >= day ? day + 1 : day) * 86400 + 19 * 3600;
-    if (target > local) add((target - local) / 60, NXT('STREAK', pet.streak));
+    if (target > local) add((target - local) / 60, NXT('STREAK', pet.streak), 'daily');
+  }
+  // défis du jour pas encore faits : rappel à 18 h (v17)
+  if (TP_EXT && typeof todayChallenges === 'function') {
+    try {
+      const a = rollDay(advState());
+      const left = todayChallenges(a.day).filter((c, i) => !a.claimed[i] && chValue(c, a) < c.n).length;
+      const local = rtcEpoch(), target = Math.floor(local / 86400) * 86400 + 18 * 3600;
+      if (left > 0 && target > local) add((target - local) / 60, NXT('DAILY', left), 'daily');
+    } catch (e) { /* rien */ }
+  }
+  return finishAlerts(out, cfg);
+}
+// heures calmes, regroupement selon le mode, alarmes précises ou non
+function finishAlerts(out, cfg) {
+  const tzMin = (t) => { const d = new Date(t); return d.getHours() * 60 + d.getMinutes(); };
+  for (const a of out) {
+    if (a.cat === 'egg' && cfg.qegg) continue;
+    const m = tzMin(a.at);
+    if (inQuiet(cfg, m)) {          // repoussée à la fin des heures calmes
+      let wait = cfg.qe - m;
+      if (wait <= 0) wait += 1440;
+      a.at += wait * 60000 - (new Date(a.at).getSeconds()) * 1000;
+    }
   }
   out.sort((a, b) => a.at - b.at);
-  // deux besoins à moins de 10 min d'écart : une seule notification
+  const win = [10, 30, 150][cfg.mode] * 60000;
   const merged = [];
   for (const a of out) {
     const prev = merged[merged.length - 1];
-    if (prev && a.at - prev.at < 10 * 60000 && prev.n < 3) { prev.x += ' · ' + a.x; prev.n++; }
+    if (prev && a.at - prev.at < win && prev.n < 4 && a.cat !== 'egg' && prev.cat !== 'egg') { prev.x += ' · ' + a.x; prev.n++; }
     else merged.push({ ...a, n: 1 });
   }
-  return merged.slice(0, 12).map(({ at, t, x }) => ({ at, t, x }));
+  const exact = (a) => cfg.mode === 0 || (cfg.mode === 1 && a.cat === 'egg');
+  return merged.slice(0, 12).map((a) => ({ at: a.at, t: a.t, x: a.x, ex: exact(a) }));
 }
 
 function sendPlan(fg) {
@@ -2751,14 +3124,66 @@ function sendPlan(fg) {
     fg: !!fg,
     base: prefs.get('stepLast', -1),
     today: pet.stepsToday,
-    toEnc: bgEnabled && encReady ? pet.stepsToEnc : -1,
+    toEnc: bgEnabled && encReady && notifCfg().cat.enc ? pet.stepsToEnc : -1,
     title: pet.isEgg() ? 'TamaPoke' : `${petNameU()} · ${uni(sprintf(T(S_LVL_FMT), pet.level()))}`,
     lbl: NX.STEPS[gLang],
     wildT: NXT('WILD'),
     wildX: NXT('WILD2'),
+    incLeft: bgEnabled && notifCfg().cat.egg && pet.incubator && !(pet.boxFull() && pet.pcFull()) ? pet.incubator.left : -1,
+    qs: notifCfg().quiet ? notifCfg().qs : -1,
+    qe: notifCfg().quiet ? notifCfg().qe : -1,
+    qegg: !!notifCfg().qegg,
+    wgt: notifCfg().mode === 0 ? 15000 : 300000,
+    incT: 'TamaPoke',
+    incX: NXT('INC'),
     a: fg ? [] : buildAlerts(),
   };
   try { window.TPStore.setPlan(JSON.stringify(plan)); } catch (e) { /* rien */ }
+  sendWidget();
+}
+
+// ---- widget d'écran d'accueil : une « photo » du compagnon + comment ses
+// jauges descendent appli fermée (mêmes règles que la progression hors ligne)
+let lastWidgetKey = '';
+function sendWidget(force) {
+  if (!window.TPStore || !window.TPStore.setWidget) return;
+  const egg = pet.isEgg();
+  const sl = pet.sleeping;
+  // [valeur, baisse par minute, plancher] dans l'ordre de priorité des alertes
+  const need = (v, awake, asleep, flA, flS) => [v, sl ? asleep : awake, sl ? flS : flA];
+  const n = [
+    need(pet.fullness, 2, 0.5, 15, 30),
+    need(pet.water, 1, 0.5, 15, 30),
+    need(pet.hygiene, 1, 1 / 3, 15, 45),
+    sl ? [100, 0, 0] : need(pet.energy, 1, 0, 15, 15),
+    need(pet.joy, 1, 0.5, 15, 35),
+  ];
+  const l = [T(S_BAR_FOOD), TX('X_BAR_WATER'), T(S_BAR_HYG), T(S_BAR_ENE), T(S_BAR_JOY)].map(uni);
+  const al = [T(S_HUNGRY), TX('X_THIRSTY'), T(S_NEEDS_BATH), T(S_EXHAUSTED), T(S_SAD)].map(uni);
+  const data = {
+    t0: Date.now(), egg, n, l, al, stl: NX.STEPS[gLang],
+    name: egg ? uni(T(S_EGG_HDR)) : `${pet.shiny ? '★ ' : ''}${petNameU()} · ${uni(sprintf(T(S_LVL_FMT), pet.level()))}`,
+    ok: egg ? uni(eggMsg()) : sl ? 'Zzz…' : uni(T(S_HAPPY)),
+  };
+  const key = `${pet.speciesId}|${pet.shiny}|${egg}`;
+  let img = '';
+  if (force || key !== lastWidgetKey || !sendWidget.img) {
+    let src = null;
+    if (egg) src = mapCanvas('SPR_EGG', false);
+    else { const t = thumbs.get(pet.speciesId); if (t) src = thumbs.canvas(t, false); }
+    if (src) {
+      const k = Math.max(1, Math.floor(96 / Math.max(src.width, src.height)));
+      const cv = document.createElement('canvas');
+      cv.width = src.width * k; cv.height = src.height * k;
+      const g = cv.getContext('2d');
+      g.imageSmoothingEnabled = false;
+      g.drawImage(src, 0, 0, cv.width, cv.height);
+      sendWidget.img = cv.toDataURL('image/png').split(',')[1];
+      lastWidgetKey = key;
+    }
+  }
+  img = sendWidget.img || '';
+  try { window.TPStore.setWidget(JSON.stringify(data), img); } catch (e) { /* rien */ }
 }
 
 // ---- horloge dans la zone noire au-dessus de l'écran rond
@@ -2781,15 +3206,15 @@ function updateClock() {
 // ============================================== intégration Android / page
 // barre de raccourcis sous l'écran rond : les gestes du firmware restent
 // valables, les boutons les rendent découvrables sur un téléphone
-const NAV_LABELS = {
-  FR: ['Pokédex', 'Fiche', 'Balade', 'Réglages'], ES: ['Pokédex', 'Ficha', 'Paseo', 'Ajustes'],
-  EN: ['Pokédex', 'Profile', 'Walk', 'Settings'], DE: ['Pokédex', 'Profil', 'Laufen', 'Optionen'],
-  IT: ['Pokédex', 'Scheda', 'Passeggio', 'Impost.'], PT: ['Pokédex', 'Ficha', 'Passeio', 'Ajustes'],
-  JA: ['ずかん', 'プロフィール', 'さんぽ', 'せってい'], KO: ['도감', '프로필', '산책', '설정'],
+const NAV_LABELS = {  // ordre : dex, card, team, pc, trade, walk, adv, set
+  FR: ['Pokédex', 'Fiche', 'Équipe', 'PC', 'Échanges', 'Balade', 'Aventure', 'Réglages'], ES: ['Pokédex', 'Ficha', 'Equipo', 'PC', 'Cambios', 'Paseo', 'Aventura', 'Ajustes'],
+  EN: ['Pokédex', 'Profile', 'Team', 'PC', 'Trades', 'Walk', 'Journey', 'Settings'], DE: ['Pokédex', 'Profil', 'Team', 'PC', 'Tausch', 'Laufen', 'Abenteuer', 'Optionen'],
+  IT: ['Pokédex', 'Scheda', 'Squadra', 'PC', 'Scambi', 'Passeggio', 'Avventura', 'Impost.'], PT: ['Pokédex', 'Ficha', 'Equipe', 'PC', 'Trocas', 'Passeio', 'Aventura', 'Ajustes'],
+  JA: ['ずかん', 'プロフ', 'チーム', 'PC', 'こうかん', 'さんぽ', 'ぼうけん', 'せってい'], KO: ['도감', '프로필', '팀', 'PC', '교환', '산책', '모험', '설정'],
 };
 function updateNav() {
   const l = NAV_LABELS[LANG_CODES[gLang]] || NAV_LABELS.EN;
-  ['nav-dex', 'nav-card', 'nav-walk', 'nav-set'].forEach((id, i) => {
+  ['nav-dex', 'nav-card', 'nav-team', 'nav-pc', 'nav-trade', 'nav-walk', 'nav-adv', 'nav-set'].forEach((id, i) => {
     const el = document.getElementById(id);
     if (el) el.querySelector('span').textContent = l[i];
   });
@@ -2799,6 +3224,17 @@ function navAction(kind) {
   audio.ensure();
   if (pet.awaitingStarter() || pet.ceremony || gameOpen || sackOpen || kbOpen || battleOpen) return;
   confirmUntil = 0; feedMenuUntil = 0; choiceKind = 0;
+  if (kind === 'pc' || kind === 'trade' || kind === 'adv') {
+    if (kind === 'pc') openPC(); else if (kind === 'trade') openTradeHub(); else openAdventure();
+    return;
+  }
+  if (kind === 'team') {
+    if (galleryOpen) { galleryOpen = false; galleryPmd.unload(); }
+    cardOpen = false; clockOpen = false; pedOpen = false;
+    if (teamOpen) teamOpen = false; else openTeam();
+    return;
+  }
+  teamOpen = false;
   if (kind === 'walk') {
     if (galleryOpen) { galleryOpen = false; galleryPmd.unload(); }
     cardOpen = false; clockOpen = false;
@@ -2826,11 +3262,24 @@ function navAction(kind) {
 // en arrière-plan (le jeu continue de vivre, comme la carte dans sa poche)
 window.tpBack = function () {
   if (document.getElementById('duel').classList.contains('open')) { closeDuel(); return true; }
+  if (document.getElementById('options').classList.contains('open')) { closeOptions(); return true; }
+  const tr = document.getElementById('trade');
+  if (tr && tr.classList.contains('open')) { closeTrade(); return true; }
+  if (document.getElementById('pc').classList.contains('open')) {
+    if (pcMulti) { pcMulti = null; pcMultiSure = false; renderPC(); } else if (pcSel) { pcSel = 0; pcSure = false; renderPC(); } else closePC();
+    return true;
+  }
+  if (document.getElementById('trades').classList.contains('open')) { closeTradeHub(); return true; }
+  if (document.getElementById('adv').classList.contains('open')) {
+    if (carePick) { carePick = false; renderAdventure(); } else closeAdventure();
+    return true;
+  }
   if (battleOpen) {
     if (bt.phase === 'intro') { if (bt.duel) { battleOpen = false; wildPmd.unload(); bt = null; } else endBattle(-1); }
     return true;
   }
-  if (pedOpen) { pedOpen = false; return true; }
+  if (pedOpen) { if (pedHist) pedHist = 0; else pedOpen = false; return true; }
+  if (teamOpen) { if (teamSel >= 0) { teamSel = -1; teamSure = false; } else teamOpen = false; return true; }
   if (kbOpen) { kbOpen = false; return true; }
   if (galleryOpen) {
     if (galleryDetail) { galleryDetail = 0; galleryPmd.unload(); galleryDirty = true; }
@@ -2903,6 +3352,10 @@ document.getElementById('nav-dex').addEventListener('click', () => navAction('de
 document.getElementById('nav-card').addEventListener('click', () => navAction('card'));
 document.getElementById('nav-set').addEventListener('click', () => navAction('set'));
 document.getElementById('nav-walk').addEventListener('click', () => navAction('walk'));
+document.getElementById('nav-team').addEventListener('click', () => navAction('team'));
+document.getElementById('nav-pc').addEventListener('click', () => navAction('pc'));
+document.getElementById('nav-trade').addEventListener('click', () => navAction('trade'));
+document.getElementById('nav-adv').addEventListener('click', () => navAction('adv'));
 window.addEventListener('resize', layout);
 
 layout();
@@ -2910,5 +3363,7 @@ setup();
 if (TP_EXT) { loadBg(); setTimeout(() => { pollSteps(); sendPlan(true); }, 800); }
 updateClock();
 setInterval(updateClock, 1000);
-requestAnimationFrame(frame);
+// la boucle démarre une fois tous les scripts chargés (duel.js, team.js)
+if (document.readyState === 'complete') requestAnimationFrame(frame);
+else window.addEventListener('load', () => requestAnimationFrame(frame));
 window.TP = { pet, prefs, version: APP_VERSION };

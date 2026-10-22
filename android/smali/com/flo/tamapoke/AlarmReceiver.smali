@@ -35,6 +35,7 @@
     if-eqz v2, :done
     invoke-static {p1, v1, v2, v3}, Lcom/flo/tamapoke/Notif;->post(Landroid/content/Context;ILjava/lang/String;Ljava/lang/String;)V
     :done
+    invoke-static {p1}, Lcom/flo/tamapoke/Widget;->render(Landroid/content/Context;)V
     return-void
 
     :boot
@@ -55,5 +56,6 @@
     :try_end_0
     .catch Ljava/lang/Exception; {:try_start_0 .. :try_end_0} :done2
     :done2
+    invoke-static {p1}, Lcom/flo/tamapoke/Widget;->render(Landroid/content/Context;)V
     return-void
 .end method

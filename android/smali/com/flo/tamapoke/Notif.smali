@@ -89,3 +89,54 @@
     invoke-virtual {v0, p1, v1}, Landroid/app/NotificationManager;->notify(ILandroid/app/Notification;)V
     return-void
 .end method
+
+
+# heures calmes : bg_qs / bg_qe en minutes depuis minuit (-1 = désactivé) ;
+# l'œuf peut passer quand même (bg_qegg)
+.method public static quiet(Landroid/content/Context;Z)Z
+    .registers 8
+    const-string v0, "tamapoke"
+    const/4 v1, 0x0
+    invoke-virtual {p0, v0, v1}, Landroid/content/Context;->getSharedPreferences(Ljava/lang/String;I)Landroid/content/SharedPreferences;
+    move-result-object v0
+    if-eqz p1, :noegg
+    const-string v2, "bg_qegg"
+    invoke-interface {v0, v2, v1}, Landroid/content/SharedPreferences;->getBoolean(Ljava/lang/String;Z)Z
+    move-result v2
+    if-nez v2, :no
+    :noegg
+    const-string v2, "bg_qs"
+    const/4 v3, -0x1
+    invoke-interface {v0, v2, v3}, Landroid/content/SharedPreferences;->getInt(Ljava/lang/String;I)I
+    move-result v2
+    const-string v4, "bg_qe"
+    invoke-interface {v0, v4, v3}, Landroid/content/SharedPreferences;->getInt(Ljava/lang/String;I)I
+    move-result v4
+    if-ltz v2, :no
+    if-ltz v4, :no
+    if-eq v2, v4, :no
+    invoke-static {}, Ljava/util/Calendar;->getInstance()Ljava/util/Calendar;
+    move-result-object v0
+    const/16 v1, 0xb
+    invoke-virtual {v0, v1}, Ljava/util/Calendar;->get(I)I
+    move-result v1
+    mul-int/lit8 v1, v1, 0x3c
+    const/16 v3, 0xc
+    invoke-virtual {v0, v3}, Ljava/util/Calendar;->get(I)I
+    move-result v3
+    add-int/2addr v1, v3
+    # v1 = minute de la journée ; v2 = début, v4 = fin
+    if-ge v2, v4, :wrap
+    if-lt v1, v2, :no
+    if-ge v1, v4, :no
+    goto :yes
+    :wrap
+    if-ge v1, v2, :yes
+    if-lt v1, v4, :yes
+    :no
+    const/4 v0, 0x0
+    return v0
+    :yes
+    const/4 v0, 0x1
+    return v0
+.end method

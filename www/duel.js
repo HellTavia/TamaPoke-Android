@@ -55,6 +55,12 @@ const DX = {
   RENAME: ['Nombre para este amigo', 'Name for this friend', 'Surnom pour cet ami', 'Name für diesen Freund', 'Nome per questo amico', 'Nome para este amigo', 'この ともだちの なまえ', '이 친구의 이름'],
   NEED: ['No puede luchar ahora', "Can't battle right now", 'Il ne peut pas combattre maintenant', 'Kann gerade nicht kämpfen', 'Non può lottare ora', 'Não pode lutar agora', 'いまは たたかえない', '지금은 대결할 수 없어요'],
 };
+Object.assign(DX, {
+  TEAM: ['Equipo de duelo: tu compañero + 2', 'Duel team: your partner + 2', 'Équipe de duel : ton compagnon + 2', 'Duell-Team: Partner + 2', 'Squadra da duello: compagno + 2', 'Equipe de duelo: parceiro + 2', 'デュエル チーム: あいぼう＋2', '듀얼 팀: 파트너 + 2'],
+  TEAM_HOW: ['Elige 2 Pokémon de tu equipo. Combate 3 contra 3: cada uno usa sus ataques reales.', 'Pick 2 Pokémon from your team. 3-vs-3 battle, each one uses its real moves.', "Choisis 2 POKEMON de ton équipe. Combat 3 contre 3, chacun avec ses vraies attaques.", 'Wähle 2 Pokémon aus deinem Team. 3-gegen-3 mit echten Attacken.', 'Scegli 2 Pokémon della squadra. Lotta 3 contro 3 con le mosse vere.', 'Escolha 2 Pokémon da equipe. Luta 3 contra 3 com golpes reais.', 'チームから 2ひき えらんでね（3たい3）', '팀에서 2마리를 고르세요 (3대3)'],
+  TEAM_EMPTY: ['Equipo vacío: duelo 1 contra 1', 'Empty team: 1-vs-1 duel', 'Équipe vide : duel en 1 contre 1', 'Team leer: 1 gegen 1', 'Squadra vuota: 1 contro 1', 'Equipe vazia: 1 contra 1', 'チームが からっぽ: 1たい1', '팀이 비었어요: 1대1'],
+  OLDCARD: ['Tarjeta de una versión antigua: duelo 1 contra 1 sin ataques', 'Card from an older version: 1-vs-1 duel without moves', "Carte d'une ancienne version : duel 1 contre 1, sans attaques", 'Karte einer alten Version: 1 gegen 1 ohne Attacken', 'Carta di una vecchia versione: 1 contro 1 senza mosse', 'Cartão de versão antiga: 1 contra 1 sem golpes', 'ふるい カード: 1たい1', '이전 버전 카드: 1대1'],
+});
 const DXT = (k, ...a) => sprintf(DX[k][gLang], ...a);
 const DUEL_BTN = ['DUELO', 'DUEL', 'DUEL', 'DUELL', 'DUELLO', 'DUELO', 'たいせん', '대결'];
 
@@ -78,16 +84,28 @@ function trainer() {
   }
   return t;
 }
+const nickEnc = (n) => (n || '').replace(/\./g, '_').replace(/-/g, '+').replace(/~/g, '+').toUpperCase().replace(/[^A-Z_+]/g, '').slice(0, 11);
+const nickDec = (n) => (n || '').replace(/_/g, '.').replace(/\+/g, '-');
 function encodeCard(c) {
   const nick = (c.nick || '').replace(/\./g, '_').replace(/-/g, '+');
-  const body = [c.dex, c.sh ? 1 : 0, c.lv, c.atk, c.def, c.spe, c.hp, c.n, c.tid].map(b36).join('.') +
+  let body = [c.dex, c.sh ? 1 : 0, c.lv, c.atk, c.def, c.spe, c.hp, c.n, c.tid].map(b36).join('.') +
     '.' + nick + '.' + cleanName(c.tname);
-  return `TPD2-${body}-${(cardHash(body) % 1296).toString(36).padStart(2, '0')}`;
+  // TPD4 (v12) : + 2 POKEMON de l'équipe pour le duel 3 contre 3 avec attaques
+  if (c.team) {
+    for (const m of c.team) body += '~' + [m.dex, m.sh ? 1 : 0, m.lv, m.atk, m.def, m.spe, m.hp].map(b36).join('.') + '.' + nickEnc(m.nick);
+    return `TPD4-${body}-${(cardHash(body) % 1296).toString(36).padStart(2, '0')}`;
+  }
+  // TPD3 = même carte que TPD2, mais les deux téléphones appliquent les types
+  return `TPD3-${body}-${(cardHash(body) % 1296).toString(36).padStart(2, '0')}`;
 }
 function parseCard(text) {
   text = String(text || '');
-  let m = /TPD2-((?:[0-9a-z]+\.){9}[A-Z_+]{0,11}\.[A-Z0-9]{0,10})-([0-9a-z]{2})/.exec(text);
+  const m4 = /TPD4-((?:[0-9a-z]+\.){9}[A-Z_+]{0,11}\.[A-Z0-9]{0,10})((?:~(?:[0-9a-z]+\.){7}[A-Z_+]{0,11}){0,2})-([0-9a-z]{2})/.exec(text);
+  if (m4) return parseCard4(m4);
+  let m = /TPD([23])-((?:[0-9a-z]+\.){9}[A-Z_+]{0,11}\.[A-Z0-9]{0,10})-([0-9a-z]{2})/.exec(text);
   const v2 = !!m;
+  const rules = m ? +m[1] : 1;
+  if (m) m = [m[0], m[2], m[3]];
   if (!m) m = /TPD1-((?:[0-9a-z]+\.){8}[A-Z_+]{0,11})-([0-9a-z]{2})/.exec(text);
   if (!m) return null;
   const body = m[1];
@@ -98,7 +116,7 @@ function parseCard(text) {
   const c = { dex: v[0], sh: v[1] === 1, lv: v[2], atk: v[3], def: v[4], spe: v[5], hp: v[6], n: v[7],
     // ancienne carte sans identifiant : le numéro de carte en tient lieu
     tid: v2 ? v[8] : v[7], tname: v2 ? (f[10] || '') : '',
-    nick: (f[nf] || '').replace(/_/g, '.').replace(/\+/g, '-'), code: m[0] };
+    nick: (f[nf] || '').replace(/_/g, '.').replace(/\+/g, '-'), code: m[0], rules };
   if (!(c.dex >= 1 && c.dex <= 151 && c.lv >= 1 && c.lv <= 999)) return null;
   // garde-fou contre les cartes trafiquées : stats possibles pour cette espèce
   const d = DEX_TBL[c.dex];
@@ -107,6 +125,43 @@ function parseCard(text) {
   const hp0 = battleHp(d.bHp, c.lv);
   if (c.hp < hp0 || c.hp > hp0 + 10) return null;
   return c;
+}
+function validMon(c) {
+  if (!(c.dex >= 1 && c.dex <= 151 && c.lv >= 1 && c.lv <= 999)) return false;
+  const d = DEX_TBL[c.dex];
+  const ok = (st, base) => st >= 1 && st <= Math.ceil(base * 1.1) + c.lv + 100;
+  if (!ok(c.atk, d.bAtk) || !ok(c.def, d.bDef) || !ok(c.spe, d.bSpe)) return false;
+  const hp0 = battleHp(d.bHp, c.lv);
+  return c.hp >= hp0 && c.hp <= hp0 + 10;
+}
+function parseCard4(m4) {
+  const body = m4[1] + m4[2];
+  if ((cardHash(body) % 1296).toString(36).padStart(2, '0') !== m4[3]) return null;
+  const f = m4[1].split('.');
+  const v = f.slice(0, 9).map((x) => parseInt(x, 36));
+  const c = { dex: v[0], sh: v[1] === 1, lv: v[2], atk: v[3], def: v[4], spe: v[5], hp: v[6], n: v[7], tid: v[8],
+    nick: nickDec(f[9]), tname: f[10] || '', code: m4[0], rules: 4 };
+  if (!validMon(c)) return null;
+  c.team = [{ dex: c.dex, sh: c.sh, lv: c.lv, atk: c.atk, def: c.def, spe: c.spe, hp: c.hp, nick: c.nick }];
+  for (const seg of m4[2].split('~').slice(1)) {
+    const g = seg.split('.');
+    const w = g.slice(0, 7).map((x) => parseInt(x, 36));
+    const mon = { dex: w[0], sh: w[1] === 1, lv: w[2], atk: w[3], def: w[4], spe: w[5], hp: w[6], nick: nickDec(g[7]) };
+    if (!validMon(mon)) return null;
+    c.team.push(mon);
+  }
+  return c;
+}
+// équipe de duel (v12) : 2 POKEMON de l'équipe choisis dans l'écran Duel
+function duelTeamMembers() {
+  let uids = prefs.get('duelTeam', null);
+  if (!Array.isArray(uids)) uids = pet.box.slice(0, 2).map((o) => o.uid);
+  return uids.map((u) => pet.box.find((o) => o.uid === u)).filter(Boolean).slice(0, 2);
+}
+function memberCard(o) {
+  const lv = indLv(o), st = indStats(o);
+  return { dex: o.dex, sh: !!o.shiny, lv, atk: st.atk, def: st.def, spe: st.spe,
+    hp: Math.min(STAT_MAX, battleHp(DEX_TBL[o.dex].bHp, lv) + Math.min(10, Math.floor((o.bond || 0) / 10))), nick: o.nick || '' };
 }
 // ma carte : figée 24 h, même si le compagnon évolue entre-temps : ton ami
 // doit pouvoir rejouer exactement le même combat que toi. Elle ne se renouvelle
@@ -121,12 +176,14 @@ function myCard(renew = false) {
   if (saved && pet.isEgg()) saved = null;
   const tr = trainer();
   // carte d'avant la v6 (sans identifiant) ou nom de dresseur changé : on la refait
-  if (saved && (!/^TPD2-/.test(saved.code) || saved.tname !== tr.name)) saved = null;
+  const tm = duelTeamMembers();
+  const tmKey = tm.map((o) => o.uid).join(',');
+  if (saved && (!/^TPD4-/.test(saved.code) || saved.tname !== tr.name || saved.tm !== tmKey)) saved = null;
   if (!saved) {
     const c = { dex: pet.speciesId, sh: pet.shiny, lv: pet.level(), atk: pet.atkStat(), def: pet.defStat(),
       spe: pet.speStat(), hp: pet.hpMax(), n: 1 + Math.floor(Math.random() * 2147483000), nick: pet.nick || '',
-      tid: tr.id, tname: tr.name };
-    saved = { code: encodeCard(c), t: now, dex: c.dex, sh: c.sh, tname: tr.name };
+      tid: tr.id, tname: tr.name, team: tm.map(memberCard) };
+    saved = { code: encodeCard(c), t: now, dex: c.dex, sh: c.sh, tname: tr.name, tm: tmKey };
     prefs.put('duelCard', saved);
     prefs.flush();
   }
@@ -146,22 +203,63 @@ function mulberry32(a) {
 function simulateDuel(a, b) {
   const [p1, p2] = a.n < b.n ? [a, b] : [b, a];
   const rng = mulberry32(cardHash(`${p1.code}|${p2.code}`));
+  if ((p1.rules || 1) >= 4 && (p2.rules || 1) >= 4) return simulateTeamDuel(p1, p2, rng);
   const hp = { p1: p1.hp, p2: p2.hp };
   const st = { p1, p2 };
+  const useTypes = (p1.rules || 1) >= 3 && (p2.rules || 1) >= 3;
   let turn = p1.spe > p2.spe ? 'p1' : p2.spe > p1.spe ? 'p2' : (rng() < 0.5 ? 'p1' : 'p2');
   const events = [];
   for (let g = 0; g < 80 && hp.p1 > 0 && hp.p2 > 0; g++) {
     const def = turn === 'p1' ? 'p2' : 'p1';
     const crit = rng() < 0.125;
-    let dmg = Math.floor(st[turn].atk * 22 / (st[def].def + 5) * (85 + Math.floor(rng() * 16)) / 100);
+    // types seulement si les deux cartes sont des TPD3 (sinon : même calcul qu'en v4-v6)
+    const ba = useTypes ? bestAttack(st[turn].dex, st[def].dex) : { mult: 1 };
+    let dmg = Math.floor(st[turn].atk * 22 / (st[def].def + 5) * (85 + Math.floor(rng() * 16)) / 100 * ba.mult);
     if (crit) dmg = Math.floor(dmg * 1.5);
     dmg = Math.max(2, dmg);
     hp[def] = Math.max(0, hp[def] - dmg);
-    events.push({ by: turn, dmg, crit });
+    events.push({ by: turn, dmg, crit, ba });
     turn = def;
   }
   return { p1, p2, events, winner: hp.p1 > 0 ? 'p1' : 'p2' };
 }
+
+// v12 : 3 contre 3, attaques de Rouge/Bleu ; mêmes tirages des deux côtés
+function simulateTeamDuel(p1, p2, rng) {
+  const R = (n) => Math.floor(rng() * n);
+  const mk = (e) => ({ ...e, max: e.hp, hp: e.hp, st: newStages(), moves: knownMoves(e.dex, e.lv) });
+  const side = { p1: { team: p1.team.map(mk), i: 0 }, p2: { team: p2.team.map(mk), i: 0 } };
+  const act = (k) => side[k].team[side[k].i];
+  const faster = () => {
+    const a = act('p1'), b = act('p2');
+    const sa = a.spe * stageMul(a.st.spe), sb = b.spe * stageMul(b.st.spe);
+    return sa > sb ? 'p1' : sb > sa ? 'p2' : (R(2) ? 'p1' : 'p2');
+  };
+  const events = [];
+  let turn = faster(), winner = null;
+  for (let g = 0; g < 400 && !winner; g++) {
+    const other = turn === 'p1' ? 'p2' : 'p1';
+    const att = act(turn), def = act(other);
+    const crit = R(1000) < 125;
+    const m = aiMove(att, def, att.moves, R);
+    const ev = useMove(att, def, m, crit, R);
+    ev.by = turn;
+    events.push(ev);
+    if (def.hp <= 0) {
+      events.push({ ko: other });
+      if (side[other].i + 1 >= side[other].team.length) { winner = turn; break; }
+      side[other].i++;
+      events.push({ sw: other, i: side[other].i });
+      turn = faster();
+    } else turn = other;
+  }
+  if (!winner) {  // garde-fou : le plus de PV restants (en %) gagne
+    const left = (k) => side[k].team.reduce((a, x) => a + x.hp / x.max, 0);
+    winner = left('p1') >= left('p2') ? 'p1' : 'p2';
+  }
+  return { p1, p2, events, winner, team: true };
+}
+function evSide(ev) { return ev.by || ev.ko || ev.sw; }
 
 // code de vérification : identique sur les deux téléphones si et seulement si
 // les deux cartes et donc le combat sont les mêmes
@@ -294,8 +392,32 @@ function openDuel() {
 }
 function fillCard(me) {
   el('duel-code').textContent = me.code;
-  el('duel-me').textContent = `${uni(duelName(me))} · ${uni(sprintf(T(S_LVL_FMT), me.lv))}  ATK ${me.atk}  DEF ${me.def}  VIT ${me.spe}  PV ${me.hp}`;
+  const row = (c) => `${uni(duelName(c))} · ${uni(sprintf(T(S_LVL_FMT), c.lv))}  ATK ${c.atk}  DEF ${c.def}  VIT ${c.spe}  PV ${c.hp}`;
+  el('duel-me').innerHTML = (me.team || [me]).map((c) => `<div>${esc(row(c))}</div>`).join('');
   drawQr(el('duel-qr'), me.code);
+  renderDuelTeam();
+}
+// choix des 2 équipiers du duel 3 contre 3
+function renderDuelTeam() {
+  const box = el('duel-team');
+  if (!box) return;
+  const sel = duelTeamMembers().map((o) => o.uid);
+  if (!pet.box.length) { box.innerHTML = `<p class="small">${esc(DXT('TEAM_EMPTY'))}</p>`; return; }
+  box.innerHTML = `<h3>${esc(DXT('TEAM'))}</h3><p class="small">${esc(DXT('TEAM_HOW'))}</p><div class="grid">` +
+    pet.box.map((o) => cardHtml(o, sel.includes(o.uid))).join('') + '</div>';
+}
+function toggleDuelMember(uid) {
+  let sel = duelTeamMembers().map((o) => o.uid);
+  if (sel.includes(uid)) sel = sel.filter((u) => u !== uid);
+  else { sel.push(uid); if (sel.length > 2) sel.shift(); }
+  prefs.put('duelTeam', sel);
+  prefs.flush();
+  duelSessionCard = null;
+  const me = myCard();
+  duelSessionCard = me;
+  fillCard(me);
+  setDuelStatus(DXT('NEWCARD_OK'), true);
+  sfxPlay(SFX_TAP);
 }
 let newCardArmed = false;
 function renewCard() {
@@ -398,7 +520,9 @@ function acceptCode(text) {
   if (!c) { setDuelStatus(DXT('BAD'), false); sfxPlay(SFX_DENY); return false; }
   if (me && (c.n === me.n || c.tid === me.tid)) { setDuelStatus(DXT('SELF'), false); return false; }
   duelOpp = c;
-  setDuelStatus(`${DXT('GOT', uni(duelName(c)), c.lv)}  —  ${DXT('WAIT')}`, true);
+  const more = c.team && c.team.length > 1 ? ' + ' + c.team.slice(1).map((x) => uni(duelName(x))).join(', ') : '';
+  const old = (c.rules || 1) < 4 ? `  (${DXT('OLDCARD')})` : '';
+  setDuelStatus(`${DXT('GOT', uni(duelName(c)), c.lv)}${more}${old}  —  ${DXT('WAIT')}`, true);
   el('duel-fight').disabled = false;
   sfxPlay(SFX_TAP);
   return true;
@@ -460,7 +584,7 @@ async function startScan() {
     g.drawImage(v, 0, 0, work.width, work.height);
     const img = g.getImageData(0, 0, work.width, work.height);
     const res = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
-    if (res && res.data && /TPD[12]-/.test(res.data)) {
+    if (res && res.data && /TPD[1234]-/.test(res.data)) {
       if (acceptCode(res.data)) stopScan();
     }
   };
@@ -494,9 +618,13 @@ function wireDuel() {
     box.hidden = !box.hidden;
     if (!box.hidden) el('duel-input').focus();
   });
-  el('duel-input').addEventListener('input', (e) => { if (/TPD[12]-/.test(e.target.value)) acceptCode(e.target.value); });
+  el('duel-input').addEventListener('input', (e) => { if (/TPD[1234]-/.test(e.target.value)) acceptCode(e.target.value); });
   el('duel-close').addEventListener('click', closeDuel);
   el('duel-new').addEventListener('click', renewCard);
+  el('duel-team').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-uid]');
+    if (b) toggleDuelMember(+b.dataset.uid);
+  });
   el('duel-tname-ok').addEventListener('click', saveTrainerName);
   el('duel-tname').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveTrainerName(); });
   el('duel-fight').addEventListener('click', () => {

@@ -180,6 +180,15 @@ def main(repo: Path, gfx: Path, out: Path):
     assert len(font) == 256 * 5, len(font)
     data["FONT"] = font
 
+    # types de la 1re génération (fork) : tools/gen1_types.json, extrait de PokeAPI
+    tj = Path(__file__).resolve().parent / "gen1_types.json"
+    if tj.exists():
+        data["TYPES"] = json.loads(tj.read_text(encoding="utf-8"))
+    # attaques de Rouge/Bleu (fork v12) : tools/gen1_moves.json (tools/gen1_moves.py)
+    mj = Path(__file__).resolve().parent / "gen1_moves.json"
+    if mj.exists():
+        data["MOVES"] = json.loads(mj.read_text(encoding="utf-8"))
+
     out.parent.mkdir(parents=True, exist_ok=True)
     js = "// GÉNÉRÉ par tools/gen_data.py depuis le firmware TamaPoke - ne pas éditer\n"
     js += "window.TP_DATA = " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";\n"
