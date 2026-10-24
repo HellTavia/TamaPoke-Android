@@ -14,7 +14,7 @@ const D = window.TP_DATA;
 // jeu se comporte exactement comme le firmware d'origine (test différentiel).
 let TP_EXT = true;
 const FW_VERSION = '1.17';
-const APP_VERSION = '1.17-android.18';
+const APP_VERSION = '1.17-android.19';
 
 // ===================================================================== utils
 const T0 = performance.now();
@@ -259,6 +259,7 @@ class Pet {
     this.reservedEgg = 0; this.reservedShiny = false;  // œuf gardé après une capture
     this.battlesWon = 0; this.battlesLost = 0;
     this.dexCaught = new Array(19).fill(0);  // capturés en combat (sous-ensemble du Pokédex)
+    this.dexSeen = new Array(19).fill(0);    // v19 : vus (sauvages, duels) sans forcément les avoir
     this.box = [];            // équipe : jusqu'à 6 Pokémon en pension (temps figé)
     this.pc = [];             // PC : stockage des autres Pokémon (temps figé aussi)
     this.uid = 0;             // identifiant du compagnon (suit l'individu entre équipe/PC/échanges)
@@ -1089,6 +1090,24 @@ class Pet {
   isShinyRegistered(dex) {
     return dex >= 1 && dex <= 151 && !!(this.dexShinyReg[(dex - 1) >> 3] & (1 << ((dex - 1) & 7)));
   }
+  // v19 Pokédex : « vu » = croisé (sauvage, duel) ou obtenu
+  markSeen(dex) {
+    if (!TP_EXT || !(dex >= 1 && dex <= 151)) return;
+    this.dexSeen[(dex - 1) >> 3] |= (1 << ((dex - 1) & 7));
+  }
+  isSeen(dex) {
+    return this.isRegistered(dex) || (dex >= 1 && dex <= 151 && !!(this.dexSeen[(dex - 1) >> 3] & (1 << ((dex - 1) & 7))));
+  }
+  dexCounts() {
+    const c = { seen: 0, reg: 0, caught: 0, shiny: 0 };
+    for (let i = 1; i <= 151; i++) {
+      if (this.isSeen(i)) c.seen++;
+      if (this.isRegistered(i)) c.reg++;
+      if (this.isCaught(i)) c.caught++;
+      if (this.isShinyRegistered(i)) c.shiny++;
+    }
+    return c;
+  }
   lowestStat() {
     const m = min(min(this.fullness, this.joy), min(this.energy, this.hygiene));
     return TP_EXT ? min(m, this.water) : m;
@@ -1135,7 +1154,7 @@ class Pet {
     P('wat', this.water); P('stT', this.stepsTotal); P('stD', this.stepsToday); P('stDay', this.stepsDay); P('stH', this.stepHist);
     P('stBest', this.stepsBest); P('stEnc', this.stepsToEnc); P('stSpan', this.encSpan); P('stPend', this.pendingEnc);
     P('stAs', this.accSpe); P('stAw', this.accWgt); P('rEgg', this.reservedEgg); P('rShy', this.reservedShiny);
-    P('bWon', this.battlesWon); P('bLost', this.battlesLost); P('dexc', this.dexCaught.slice());
+    P('bWon', this.battlesWon); P('bLost', this.battlesLost); P('dexc', this.dexCaught.slice()); P('dexseen', this.dexSeen.slice());
     P('box', this.box.map((o) => ({ ...o }))); P('inc', this.incubator ? { ...this.incubator } : null);
     P('pc', this.pc.map((o) => ({ ...o }))); P('uid', this.uid);
     prefs.flush();
@@ -1172,6 +1191,7 @@ class Pet {
     this.reservedEgg = G('rEgg', 0); this.reservedShiny = G('rShy', false);
     this.battlesWon = G('bWon', 0); this.battlesLost = G('bLost', 0);
     const dc = G('dexc', null); if (Array.isArray(dc) && dc.length === 19) this.dexCaught = dc.slice();
+    const ds = G('dexseen', null); if (Array.isArray(ds) && ds.length === 19) this.dexSeen = ds.slice();
     const bx = G('box', null); this.box = Array.isArray(bx) ? bx.slice(0, BOX_SIZE) : [];
     const pcs = G('pc', null); this.pc = Array.isArray(pcs) ? pcs.slice(0, PC_SIZE) : [];
     this.uid = G('uid', 0) || newUid();
@@ -1433,6 +1453,12 @@ const XSTR_SRC = {
   ST_acc: ['la precisión', 'accuracy', 'la précision', 'Genauigkeit', 'la precisione', 'a precisão', 'めいちゅう', '명중률'],
   ST_eva: ['la evasión', 'evasiveness', "l'esquive", 'Fluchtwert', "l'elusione", 'a evasão', 'かいひ', '회피율'],
   X_STRUGGLE: ['¡%s usa Combate!', '%s used Struggle!', '%s utilise Lutte !', '%s setzt Verzweifler ein!', '%s usa Scontro!', '%s usou Luta!', '%sの わるあがき！', '%s의 발버둥!'],
+  // v19 Pokédex
+  X_DEX_LINE: ['Vistos %u Capt %u *%u %u%%', 'Seen %u Caught %u *%u %u%%', 'Vus %u Capt %u *%u %u%%', 'Ges %u Gef %u *%u %u%%', 'Visti %u Catt %u *%u %u%%', 'Vistos %u Capt %u *%u %u%%', 'みた%u つかまえた%u *%u %u%%', '봄%u 잡음%u *%u %u%%'],
+  X_DEX_SEEN: ['VISTO', 'SEEN', 'VU', 'GESEHEN', 'VISTO', 'VISTO', 'みた', '봤음'],
+  X_DEX_OWN: ['OBTENIDO', 'OBTAINED', 'OBTENU', 'ERHALTEN', 'OTTENUTO', 'OBTIDO', 'てにいれた', '얻음'],
+  X_DEX_CAUGHT: ['CAPTURADO', 'CAUGHT', 'CAPTURÉ', 'GEFANGEN', 'CATTURATO', 'CAPTURADO', 'つかまえた', '잡았음'],
+  X_DEX_NONE: ['NO VISTO', 'NOT SEEN', 'PAS VU', 'NICHT GESEHEN', 'NON VISTO', 'NÃO VISTO', 'まだ みてない', '아직 못 봤음'],
   X_WINS: ['Victorias: %u', 'Wins: %u', 'Victoires: %u', 'Siege: %u', 'Vittorie: %u', 'Vitórias: %u', 'しょうり %u', '승리 %u'],
 };
 const XSTR = {};

@@ -531,6 +531,25 @@
     move-result-wide v4
     const-string v2, "bg_wgt"
     invoke-interface {v1, v2, v4, v5}, Landroid/content/SharedPreferences$Editor;->putLong(Ljava/lang/String;J)Landroid/content/SharedPreferences$Editor;
+
+    # v19 : Health Connect en arrière-plan (hc = autorisé par le jeu, mid = minuit du jour)
+    const-string v2, "hc"
+    invoke-virtual {v0, v2}, Lorg/json/JSONObject;->optBoolean(Ljava/lang/String;)Z
+    move-result v4
+    const-string v2, "bg_hc"
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putBoolean(Ljava/lang/String;Z)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "mid"
+    const-wide/16 v4, 0x0
+    invoke-virtual {v0, v2, v4, v5}, Lorg/json/JSONObject;->optLong(Ljava/lang/String;J)J
+    move-result-wide v4
+    const-string v2, "bg_mid"
+    invoke-interface {v1, v2, v4, v5}, Landroid/content/SharedPreferences$Editor;->putLong(Ljava/lang/String;J)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "bg_hcN"
+    const/4 v4, -0x1
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putInt(Ljava/lang/String;I)Landroid/content/SharedPreferences$Editor;
+    const-string v2, "bg_ph"
+    const/4 v4, 0x0
+    invoke-interface {v1, v2, v4}, Landroid/content/SharedPreferences$Editor;->putInt(Ljava/lang/String;I)Landroid/content/SharedPreferences$Editor;
     invoke-interface {v1}, Landroid/content/SharedPreferences$Editor;->apply()V
 
     if-eqz v3, :sched
@@ -867,6 +886,47 @@
     :old
     const-string v0, "Android < 14"
     return-object v0
+.end method
+
+
+# v19 : lecture en arrière-plan (Android 15+) : -1 indisponible, 0 à donner, 1 accordée
+.method public hcBgState()I
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x23
+    if-ge v0, v1, :ok
+    const/4 v0, -0x1
+    return v0
+    :ok
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    const-string v1, "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
+    invoke-virtual {v0, v1}, Landroid/app/Activity;->checkSelfPermission(Ljava/lang/String;)I
+    move-result v0
+    if-nez v0, :no
+    const/4 v0, 0x1
+    return v0
+    :no
+    const/4 v0, 0x0
+    return v0
+.end method
+
+
+.method public hcBgRequest()V
+    .registers 4
+    .annotation runtime Landroid/webkit/JavascriptInterface;
+    .end annotation
+    sget v0, Landroid/os/Build$VERSION;->SDK_INT:I
+    const/16 v1, 0x23
+    if-ge v0, v1, :go
+    return-void
+    :go
+    const-string v0, "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
+    iput-object v0, p0, Lcom/flo/tamapoke/Bridge;->pendingPerm:Ljava/lang/String;
+    iget-object v0, p0, Lcom/flo/tamapoke/Bridge;->act:Landroid/app/Activity;
+    invoke-virtual {v0, p0}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+    return-void
 .end method
 
 

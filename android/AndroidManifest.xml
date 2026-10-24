@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.flo.tamapoke"
-    android:versionCode="18"
-    android:versionName="1.17-android.18">
+    android:versionCode="19"
+    android:versionName="1.17-android.19">
 
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- v13 : pas d'une montre via Health Connect (Android 14+) -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <!-- v19 : lire ces pas appli fermée (Android 15+) -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
     <queries>
         <intent><action android:name="android.health.connect.action.MANAGE_HEALTH_PERMISSIONS" /></intent>
         <intent><action android:name="android.health.connect.action.HEALTH_HOME_SETTINGS" /></intent>

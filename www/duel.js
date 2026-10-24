@@ -331,6 +331,7 @@ function duelResult(win, opp, verif) {
 // --------------------------------------------------------- lancer un duel
 function canDuel() { return !pet.isEgg() && !pet.sleeping && !pet.ceremony; }
 function startDuel(opp) {
+  for (const m of (opp.team || [opp])) pet.markSeen(m.dex);  // v19 Pokédex : vus
   const me = myCard();
   if (!me || !canDuel()) { toast(DXT('NEED')); return false; }
   if (pet.energy < 20) { toast(TX('X_TOO_TIRED')); sfxPlay(SFX_DENY); return false; }

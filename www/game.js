@@ -1729,7 +1729,8 @@ function renderGallery() {
     gfx.fillCircle(CX, CY, 231, UI_BG_DAY);
     const d = DEX_TBL[galleryDetail];
     const reg = pet.isRegistered(galleryDetail);
-    const head = `N.${pad3(galleryDetail)} ${pet.isShinyRegistered(galleryDetail) ? '*' : ''}${reg ? dexName(galleryDetail) : '???'}`;
+    const seen = TP_EXT ? pet.isSeen(galleryDetail) : reg;  // v19 : un POKEMON vu montre son nom
+    const head = `N.${pad3(galleryDetail)} ${pet.isShinyRegistered(galleryDetail) ? '*' : ''}${seen ? dexName(galleryDetail) : '???'}`;
     gfx.setTextColor(reg ? d.accent : UI_INK);
     setSize(3);
     const gts = (textW(head, 3) <= 234) ? 3 : 2;
@@ -1737,10 +1738,18 @@ function renderGallery() {
     setCur(centerX(head, gts), gts === 3 ? 56 : 60);
     printT(head);
     if (galleryPmd.loaded) {
-      drawPmdActM(galleryPmd, PMD_IDLE, CX, 300, reg ? millis() : 0, true, !reg, 6);
+      drawPmdActM(galleryPmd, PMD_IDLE, CX, 300, reg ? millis() : 0, true, !seen, 6);
     } else {
       const t = thumbs.get(galleryDetail);
-      if (t) drawThumb(t, CX - GAL_CELL, 135, 4, !reg);
+      if (t) drawThumb(t, CX - GAL_CELL, 135, 4, !seen);
+    }
+    if (TP_EXT) {  // v19 : statut (vu / obtenu / capturé) et types
+      const st = pet.isCaught(galleryDetail) ? TX('X_DEX_CAUGHT') : reg ? TX('X_DEX_OWN') : seen ? TX('X_DEX_SEEN') : TX('X_DEX_NONE');
+      const line = seen ? `${st} - ${monTypes(galleryDetail).map(typeName).join('/')}` : st;
+      gfx.setTextColor(seen ? (TYPE_COLORS[monTypes(galleryDetail)[0]] || UI_INK) : UI_TRACK);
+      setSize(2);
+      setCur(centerX(line, 2), 376);
+      printT(line);
     }
     gfx.setTextColor(UI_INK);
     setSize(2);
@@ -1759,6 +1768,14 @@ function renderGallery() {
   setSize(3);
   setCur(centerX(head, 3), 36);
   printT(head);
+  if (TP_EXT) {  // v19 : vus, capturés, shinies et avancement
+    const c = pet.dexCounts();
+    const line = sprintf(TX('X_DEX_LINE'), c.seen, c.caught, c.shiny, Math.floor(c.reg * 100 / 151));
+    gfx.setTextColor(UI_INK);
+    setSize(2);
+    setCur(centerX(line, 2), 64);
+    printT(line);
+  }
 
   for (let r = 0; r < 4; r++) {
     for (let c = 0; c < 4; c++) {
@@ -1767,7 +1784,18 @@ function renderGallery() {
       const x = GAL_X + c * GAL_CELL, y = GAL_Y + r * GAL_CELL;
       const t = thumbs.get(dex);
       if (t) {
-        drawThumb(t, x, y, 2, !pet.isRegistered(dex));
+        const reg = pet.isRegistered(dex);
+        if (TP_EXT && !reg && pet.isSeen(dex)) {  // v19 : vu mais pas obtenu, en pâle
+          ctx.globalAlpha = 0.35;
+          drawThumb(t, x, y, 2, false);
+          ctx.globalAlpha = 1;
+        } else drawThumb(t, x, y, 2, !reg);
+        if (TP_EXT && pet.isCaught(dex)) {  // capturé en combat : petite Poké Ball
+          gfx.fillCircle(x + 10, y + 68, 5, 0xF800);
+          gfx.fillRect(x + 5, y + 68, 11, 1, UI_INK);
+          gfx.fillCircle(x + 10, y + 68, 2, UI_WHITE);
+          gfx.drawCircle(x + 10, y + 68, 5, UI_INK);
+        }
         if (pet.isShinyRegistered(dex)) {
           gfx.setTextColor(UI_BAR_WARN);
           setSize(2);
@@ -2514,6 +2542,7 @@ function openBattle() {
   if (!pet.canBattle()) return;
   if (pet.energy < 20) { toast(TX('X_TOO_TIRED')); sfxPlay(SFX_DENY); return; }
   const w = pet.pickWild();
+  pet.markSeen(w.dex);
   w.max = w.hp;
   w.st = newStages(); w.moves = knownMoves(w.dex, w.lv);
   bt = {
@@ -3136,6 +3165,9 @@ function sendPlan(fg) {
     wgt: notifCfg().mode === 0 ? 15000 : 300000,
     incT: 'TamaPoke',
     incX: NXT('INC'),
+    // v19 : le service lit Health Connect appli fermée (pas depuis minuit)
+    hc: typeof hcBgWanted === 'function' && hcBgWanted(),
+    mid: (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })(),
     a: fg ? [] : buildAlerts(),
   };
   try { window.TPStore.setPlan(JSON.stringify(plan)); } catch (e) { /* rien */ }

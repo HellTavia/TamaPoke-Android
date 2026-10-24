@@ -25,6 +25,12 @@ const HX = {
   NOTHING: ['Health Connect: %u pasos hoy, el teléfono ya tenía %u: nada que añadir', 'Health Connect: %u steps today, the phone already had %u: nothing to add', "Health Connect : %u pas aujourd'hui, le téléphone en avait déjà %u : rien à ajouter", 'Health Connect: %u heute, Handy hatte schon %u: nichts hinzuzufügen', 'Health Connect: %u oggi, il telefono ne aveva già %u: niente da aggiungere', 'Health Connect: %u hoje, o celular já tinha %u: nada a adicionar', 'HC %u ほ / でんわ %u ほ: ついか なし', 'HC %u / 폰 %u: 추가 없음'],
   ERR: ['Health Connect no respondió', 'Health Connect did not answer', "Health Connect n'a pas répondu", 'Health Connect antwortet nicht', 'Health Connect non risponde', 'Health Connect não respondeu', 'Health Connect が こたえない', 'Health Connect 응답 없음'],
   ADDED: ['+%u pasos del reloj', '+%u steps from your watch', '+%u pas de la montre', '+%u Schritte von der Uhr', '+%u passi dall\'orologio', '+%u passos do relógio', 'とけいから +%u ほ', '워치에서 +%u걸음'],
+  // v19 : lecture appli fermée
+  BG_ON: ['Segundo plano: los pasos del reloj se leen cada 15 min con la app cerrada (aviso de encuentros).', 'Background: watch steps are read every 15 min while the app is closed (encounter alerts).', "Arrière-plan : les pas de la montre sont lus toutes les 15 min, appli fermée (rencontres annoncées).", 'Hintergrund: Uhr-Schritte alle 15 Min. bei geschlossener App (Begegnungen werden gemeldet).', 'In background: passi dell\'orologio letti ogni 15 min ad app chiusa.', 'Em segundo plano: passos do relógio lidos a cada 15 min com o app fechado.', 'バックグラウンド: 15ふんごとに よみこむ', '백그라운드: 15분마다 읽어요'],
+  BG_ASK: ['Para leer el reloj con la app cerrada, permite el acceso en segundo plano.', 'To read your watch while the app is closed, allow background access.', "Pour lire la montre appli fermée, autorise l'accès en arrière-plan.", 'Für die Uhr bei geschlossener App: Hintergrundzugriff erlauben.', 'Per leggere l\'orologio ad app chiusa, consenti l\'accesso in background.', 'Para ler o relógio com o app fechado, permita o acesso em segundo plano.', 'とじていても よむには きょかが ひつよう', '앱을 닫아도 읽으려면 권한 필요'],
+  BG_ALLOW: ['Permitir en segundo plano', 'Allow in background', "Autoriser en arrière-plan", 'Im Hintergrund erlauben', 'Consenti in background', 'Permitir em segundo plano', 'バックグラウンドを きょか', '백그라운드 허용'],
+  BG_NA: ['Con la app cerrada: necesita Android 15 o superior', 'While closed: needs Android 15 or later', 'Appli fermée : nécessite Android 15 ou plus récent', 'Bei geschlossener App: ab Android 15', 'Ad app chiusa: serve Android 15', 'Com o app fechado: requer Android 15', 'とじたまま: Android 15 いじょう', '앱 닫힘: Android 15 이상'],
+  BG_SAVER: ['Con la app cerrada: no en modo Ahorro (sin servicio)', 'While closed: not in Saver mode (no service)', 'Appli fermée : pas en mode Économie (pas de service)', 'Bei geschlossener App: nicht im Sparmodus', 'Ad app chiusa: non in modalità Risparmio', 'Com o app fechado: não no modo Economia', 'せつやく モードでは よまない', '절약 모드에서는 안 읽어요'],
   ADDEDY: ['+%u pasos de ayer (reloj)', '+%u steps from yesterday (watch)', "+%u pas d'hier (montre)", '+%u Schritte von gestern (Uhr)', '+%u passi di ieri (orologio)', '+%u passos de ontem (relógio)', 'きのう +%u ほ', '어제 +%u걸음'],
 };
 const HXT = (k, ...a) => sprintf(HX[k][gLang], ...a);
@@ -32,6 +38,9 @@ const hel = (id) => document.getElementById(id);
 
 function hcAvail() { return !!(window.TPStore && window.TPStore.hcState); }
 function hcState() { try { return hcAvail() ? window.TPStore.hcState() : -1; } catch (e) { return -1; } }
+// v19 : lecture appli fermée (Android 15+) : -1 indisponible, 0 à autoriser, 1 accordée
+function hcBgState() { try { return window.TPStore && window.TPStore.hcBgState ? window.TPStore.hcBgState() : -1; } catch (e) { return -1; } }
+function hcBgWanted() { return hcPrefs().on && hcState() === 1 && hcBgState() === 1; }
 function hcPrefs() { return prefs.get('hc', null) || { on: false, day: 0, add: 0, last: 0, total: 0, yday: 0 }; }
 function hcPut(h) { prefs.put('hc', h); prefs.flush(); }
 function localMidnight() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
@@ -128,6 +137,19 @@ function renderHc() {
     }
   }
   hel('opt-hc-st').textContent = txt + (hcMsg && h.on && st >= 0 ? ' — ' + hcMsg : '');
+  // v19 : lecture appli fermée
+  const bg = hcBgState(), bgBox = hel('opt-hc-bg'), bgBtn = hel('opt-hc-bgallow');
+  bgBtn.textContent = HXT('BG_ALLOW');
+  bgBtn.hidden = true;
+  let bgTxt = '';
+  if (h.on && st === 1) {
+    if (bg < 0) bgTxt = HXT('BG_NA');
+    else if (bg === 0) { bgTxt = HXT('BG_ASK'); bgBtn.hidden = false; }
+    else if (typeof notifCfg === 'function' && notifCfg().mode === 2) bgTxt = HXT('BG_SAVER');
+    else bgTxt = HXT('BG_ON');
+  }
+  bgBox.textContent = bgTxt;
+  bgBox.hidden = !bgTxt;
 }
 // demande l'accès ; si Android n'affiche rien (accès déjà refusé deux fois),
 // on ouvre directement Health Connect pour l'autoriser à la main
@@ -146,6 +168,13 @@ function wireHc() {
     renderHc();
   });
   hel('opt-hc-allow').addEventListener('click', hcAsk);
+  hel('opt-hc-bgallow').addEventListener('click', () => {
+    try { window.TPStore.hcBgRequest(); } catch (e) { /* rien */ }
+    // si Android n'affiche rien, l'autorisation se donne dans Health Connect
+    setTimeout(() => {
+      if (!document.hidden && hcBgState() === 0) { try { window.TPStore.hcOpen(); } catch (e) { /* rien */ } }
+    }, 1500);
+  });
   hel('opt-hc-open').addEventListener('click', () => { try { window.TPStore.hcOpen(); } catch (e) { /* rien */ } });
   hel('opt-hc-sync').addEventListener('click', () => { hcSync(true); });
   // synchro : au démarrage, au retour dans l'appli (après la fenêtre d'autorisation
